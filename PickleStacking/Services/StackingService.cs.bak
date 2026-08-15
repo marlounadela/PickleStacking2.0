@@ -56,26 +56,16 @@ public sealed class StackingService
                 var state = JsonSerializer.Deserialize<PersistedState>(json);
                 if (state != null)
                 {
-                    // Safely restore players - discard if null or empty
                     players.Clear();
-                    if (state.Players != null && state.Players.Count > 0)
-                    {
-                        players.AddRange(state.Players);
-                    }
-
-                    // Safely restore session state with defaults
-                    session.CourtsCount = Math.Clamp(state.Session?.CourtsCount ?? 2, 1, 10);
-                    session.IsActive = state.Session?.IsActive ?? false;
-                    session.IsPaused = state.Session?.IsPaused ?? false;
-                    session.Mode = state.Session?.Mode ?? GameMode.Doubles;
-                    session.GameCounter = state.Session?.GameCounter ?? 0;
-
-                    nextEntryOrder = state.NextEntryOrder > 0 ? state.NextEntryOrder : 1;
+                    players.AddRange(state.Players);
+                    session.CourtsCount = Math.Clamp(state.Session.CourtsCount, 1, 10);
+                    session.IsActive = state.Session.IsActive;
+                    session.IsPaused = state.Session.IsPaused;
+                    session.Mode = state.Session.Mode;
+                    session.GameCounter = state.Session.GameCounter;
+                    nextEntryOrder = state.NextEntryOrder;
                     history.Clear();
-                    if (state.History != null)
-                    {
-                        history.AddRange(state.History);
-                    }
+                    history.AddRange(state.History);
 
                     // Restore NEXT TO PLAY queue if present
                     if (state.NextToPlayQueue != null)
@@ -89,15 +79,13 @@ public sealed class StackingService
                         nextToPlayQueue.Clear();
                     }
                 }
-                // If state is null or json is empty, start with clean defaults
             }
         }
         catch
         {
-            // Ignore storage errors; start fresh with defaults
+            // Ignore storage errors; start fresh.
         }
 
-        // Always ensure courts are built with safe defaults
         EnsureCourts();
         RebuildCourtsFromPlayers();
     }
@@ -259,12 +247,6 @@ public sealed class StackingService
         // Clear the NEXT TO PLAY queue on reset
         nextToPlayQueue.Clear();
         Persist();
-    }
-
-    private void ResetPlayerStatuses()
-    {
-        foreach (var player in players)
-            player.Status = PlayerStatus.Waiting;
     }
 
     // ------------------------------------------------------------------
@@ -531,10 +513,16 @@ public sealed class StackingService
                 .Select(p => p.Id)
                 .ToHashSet();
 
-            // Check if we can generate a new team
-            var remainingEligible = players
-                .Where(p => p.Status != PlayerStatus.Playing && !queuedPlayerIds.Contains(p.Id))
-                .ToList();
+            // During first round: prefer unplayed players (Waiting), then fall back to played players if needed
+            var remainingEligible = AllPlayersHavePlayed
+                ? players
+                    .Where(p => p.Status != PlayerStatus.Playing && !queuedPlayerIds.Contains(p.Id))
+                    .ToList()
+                : players
+                    .Where(p => p.Status != PlayerStatus.Playing && !queuedPlayerIds.Contains(p.Id))
+                    .OrderBy(p => p.GamesPlayed) // unplayed (0 games) first, then played
+                    .ThenBy(p => p.EntryOrder)
+                    .ToList();
 
             // Check if we can generate a new team
             if (remainingEligible.Count >= neededPerCourt)
@@ -1028,9 +1016,11 @@ public sealed class StackingService
         }
     }
 
-    // ------------------------------------------------------------------
-    // Helpers
-    // ------------------------------------------------------------------
+    private void ResetPlayerStatuses()
+    {
+        foreach (var player in players)
+            player.Status = PlayerStatus.Waiting;
+    }
 
     private static IEnumerable<List<Player>> Combinations(List<Player> source, int k)
     {
