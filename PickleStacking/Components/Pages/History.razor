@@ -1,0 +1,44 @@
+@page "/history"
+@inject StackingService Stacking
+
+<PageTitle>History - PickleStacking</PageTitle>
+
+<div class="page">
+    <div class="page-header">
+        <div>
+            <h1>History</h1>
+            <p class="subtitle">@Stacking.History.Count completed games</p>
+        </div>
+    </div>
+
+    @if (Stacking.History.Any())
+    {
+        <div class="history-list">
+            @foreach (var game in Stacking.History)
+            {
+                <div class="history-card">
+                    <div class="history-header">
+                        <span class="history-number">Game #@game.Number</span>
+                        <span class="history-court">Court @game.CourtNumber</span>
+                        <span class="history-mode">@game.Mode</span>
+                    </div>
+                    <div class="history-match">
+                        <div class="history-team @(game.WinningTeam == "A" ? "winner" : "")">
+                            <span class="team-label">WIN</span>
+                            <span>@game.TeamA.DisplayName</span>
+                        </div>
+                        <div class="history-team @(game.WinningTeam == "B" ? "winner" : "")">
+                            <span class="team-label">WIN</span>
+                            <span>@game.TeamB.DisplayName</span>
+                        </div>
+                    </div>
+                    <div class="history-time">@game.CompletedAt.ToLocalTime().ToString("h:mm tt")</div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="empty-state">No completed games yet.</div>
+    }
+</div>

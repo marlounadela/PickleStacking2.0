@@ -1,0 +1,106 @@
+<div class="court-card @(Court.IsActive ? "court-active" : "court-idle")">
+    <div class="court-header">
+        <span class="court-name">@Court.DisplayName</span>
+        @if (Court.IsActive)
+        {
+            <span class="court-live">LIVE</span>
+        }
+        else
+        {
+            <span class="court-open">OPEN</span>
+        }
+    </div>
+
+    @if (Court.IsActive)
+    {
+        <div class="court-match">
+            <div class="team team-a">
+                <span class="team-label">A</span>
+                <div class="team-players">
+                    @for (var i = 0; i < Court.TeamA!.Players.Count; i++)
+                    {
+                        var player = Court.TeamA.Players[i];
+                        <span class="player-slot"
+                              draggable="true"
+                              @ondragstart="() => OnDragStart(player.Id)"
+                              @ondragover="OnDragOver"
+                              @ondragover:preventDefault="true"
+                              @ondrop="() => OnDrop(player.Id)"
+                              title="Drag to swap players on this court">
+                            @player.Name
+                        </span>
+                    }
+                </div>
+            </div>
+            <div class="vs">VS</div>
+            <div class="team team-b">
+                <span class="team-label">B</span>
+                <div class="team-players">
+                    @for (var i = 0; i < Court.TeamB!.Players.Count; i++)
+                    {
+                        var player = Court.TeamB.Players[i];
+                        <span class="player-slot"
+                              draggable="true"
+                              @ondragstart="() => OnDragStart(player.Id)"
+                              @ondragover="OnDragOver"
+                              @ondragover:preventDefault="true"
+                              @ondrop="() => OnDrop(player.Id)"
+                              title="Drag to swap players on this court">
+                            @player.Name
+                        </span>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="court-actions">
+            <button class="btn btn-win" @onclick="() => HandleResult(true)">TEAM A WON</button>
+            <button class="btn btn-loss" @onclick="() => HandleResult(false)">TEAM B WON</button>
+        </div>
+    }
+    else
+    {
+        <div class="court-empty">Waiting for next game</div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public Court Court { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public EventCallback<bool> OnResult { get; set; }
+
+    [Parameter]
+    public EventCallback<(string PlayerIdA, string PlayerIdB)> OnRepair { get; set; }
+
+    private string? draggedPlayerId;
+
+    private void OnDragStart(string playerId)
+    {
+        draggedPlayerId = playerId;
+    }
+
+    private void OnDragOver(DragEventArgs e)
+    {
+        // Default prevented via @ondragover:preventDefault="true"
+    }
+
+    private async Task OnDrop(string targetPlayerId)
+    {
+        if (string.IsNullOrEmpty(draggedPlayerId) || draggedPlayerId == targetPlayerId)
+        {
+            draggedPlayerId = null;
+            return;
+        }
+
+        var playerIdA = draggedPlayerId;
+        draggedPlayerId = null;
+        await OnRepair.InvokeAsync((playerIdA, targetPlayerId));
+    }
+
+    private async Task HandleResult(bool teamAWon)
+    {
+        await OnResult.InvokeAsync(teamAWon);
+    }
+}

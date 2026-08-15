@@ -1,0 +1,23 @@
+@inherits LayoutComponentBase
+@inject StackingService Stacking
+
+<div class="app-shell">
+    <header class="app-header">
+        <div class="brand">
+            <span class="brand-mark">🥒</span>
+            <span class="brand-name">PickleStacking</span>
+        </div>
+        <NavMenu />
+    </header>
+
+    <main class="app-main">
+        @Body
+    </main>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        await Stacking.InitializeAsync();
+    }
+}

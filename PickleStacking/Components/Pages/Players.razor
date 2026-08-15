@@ -1,0 +1,210 @@
+@page "/players"
+@inject PlayerService PlayerService
+@inject StackingService Stacking
+
+<PageTitle>Players - PickleStacking</PageTitle>
+
+<div class="page">
+    <div class="page-header">
+        <div>
+            <h1>Players</h1>
+            <p class="subtitle">@Stacking.Players.Count total · @Stacking.Players.Count(p => p.Status == PlayerStatus.Playing) playing</p>
+        </div>
+    </div>
+
+    @if (errorMessage != null)
+    {
+        <div class="alert alert-error">@errorMessage</div>
+    }
+
+    <div class="add-player">
+        <input class="input"
+               placeholder="Player name"
+               @bind="newPlayerName"
+               @bind:event="oninput"
+               @onkeydown="HandleAddEnter" />
+        <button class="btn btn-primary" @onclick="AddPlayer">ADD PLAYER</button>
+    </div>
+
+    <div class="table-wrap">
+        <table class="status-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Player</th>
+                    <th>Status</th>
+                    <th>Games</th>
+                    <th>W</th>
+                    <th>L</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var player in Stacking.Players)
+                {
+                    <tr>
+                        <td class="muted">@(player.EntryOrder + 1)</td>
+                        <td>
+                            @if (editingPlayerId == player.Id)
+                            {
+                                <div class="edit-player">
+                                    <input class="input input-edit"
+                                           @bind="editPlayerName"
+                                           @bind:event="oninput"
+                                           @onkeydown="HandleEditEnter" />
+                                    <button class="btn btn-primary btn-sm" @onclick="SaveEdit">Save</button>
+                                    <button class="btn btn-outline btn-sm" @onclick="CancelEdit">Cancel</button>
+                                </div>
+                            }
+                            else
+                            {
+                                <span class="player-name">@player.Name</span>
+                            }
+                        </td>
+                        <td><StatusBadge Player="@player" /></td>
+                        <td>@player.GamesPlayed</td>
+                        <td>@player.Wins</td>
+                        <td>@player.Losses</td>
+                        <td>
+                            <div class="row-actions">
+                                <button class="btn btn-edit" @onclick="() => StartEdit(player)">Edit</button>
+                                <button class="btn btn-remove" @onclick="() => RemovePlayer(player.Id)">Remove</button>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (!Stacking.Players.Any())
+    {
+        <div class="empty-state">No players yet. Add your first player above.</div>
+    }
+</div>
+
+@code {
+    private string newPlayerName = string.Empty;
+    private string? errorMessage;
+
+    // Edit state
+    private string? editingPlayerId;
+    private string editPlayerName = string.Empty;
+
+    // ENTER-key guard flags to prevent duplicate submissions
+    private bool addEnterHandled;
+    private bool editEnterHandled;
+
+    private void AddPlayer()
+    {
+        errorMessage = null;
+        try
+        {
+            PlayerService.Add(newPlayerName);
+            newPlayerName = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void RemovePlayer(string playerId)
+    {
+        errorMessage = null;
+        try
+        {
+            PlayerService.Remove(playerId);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void HandleAddEnter(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter")
+            return;
+
+        // Guard against duplicate ENTER events (keydown + keypress + form submit)
+        if (addEnterHandled)
+            return;
+
+        addEnterHandled = true;
+        try
+        {
+            AddPlayer();
+        }
+        finally
+        {
+            // Reset the guard after the event loop so a subsequent
+            // legitimate ENTER press can submit again.
+            _ = ResetAddEnterGuard();
+        }
+    }
+
+    private async Task ResetAddEnterGuard()
+    {
+        await Task.Delay(300);
+        addEnterHandled = false;
+    }
+
+    private void StartEdit(Player player)
+    {
+        editingPlayerId = player.Id;
+        editPlayerName = player.Name;
+        errorMessage = null;
+    }
+
+    private void CancelEdit()
+    {
+        editingPlayerId = null;
+        editPlayerName = string.Empty;
+        errorMessage = null;
+    }
+
+    private void SaveEdit()
+    {
+        if (editingPlayerId == null)
+            return;
+
+        errorMessage = null;
+        try
+        {
+            PlayerService.Rename(editingPlayerId, editPlayerName);
+            editingPlayerId = null;
+            editPlayerName = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void HandleEditEnter(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter")
+            return;
+
+        // Guard against duplicate ENTER events
+        if (editEnterHandled)
+            return;
+
+        editEnterHandled = true;
+        try
+        {
+            SaveEdit();
+        }
+        finally
+        {
+            _ = ResetEditEnterGuard();
+        }
+    }
+
+    private async Task ResetEditEnterGuard()
+    {
+        await Task.Delay(300);
+        editEnterHandled = false;
+    }
+}

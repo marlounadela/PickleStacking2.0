@@ -1,0 +1,6 @@
+<span class="badge @Player.StatusCss">@Player.StatusLabel</span>
+
+@code {
+    [Parameter, EditorRequired]
+    public Player Player { get; set; } = default!;
+}

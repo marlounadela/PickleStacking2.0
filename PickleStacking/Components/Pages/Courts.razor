@@ -1,0 +1,106 @@
+@page "/courts"
+@inject CourtService CourtService
+@inject SessionService SessionService
+@inject StackingService Stacking
+
+<PageTitle>Courts - PickleStacking</PageTitle>
+
+<div class="page">
+    <div class="page-header">
+        <div>
+            <h1>Courts</h1>
+            <p class="subtitle">Configure courts and game mode</p>
+        </div>
+    </div>
+
+    @if (errorMessage != null)
+    {
+        <div class="alert alert-error">@errorMessage</div>
+    }
+
+    <div class="config-grid">
+        <div class="config-card">
+            <h3>Game Mode</h3>
+            <div class="mode-toggle">
+                <button class="btn @(Stacking.Session.Mode == GameMode.Singles ? "btn-primary" : "btn-outline")"
+                        disabled="@Stacking.Session.IsActive"
+                        @onclick="() => SetMode(GameMode.Singles)">
+                    SINGLES
+                </button>
+                <button class="btn @(Stacking.Session.Mode == GameMode.Doubles ? "btn-primary" : "btn-outline")"
+                        disabled="@Stacking.Session.IsActive"
+                        @onclick="() => SetMode(GameMode.Doubles)">
+                    DOUBLES
+                </button>
+            </div>
+            @if (Stacking.Session.IsActive)
+            {
+                <p class="muted">Mode is locked while a session is active.</p>
+            }
+        </div>
+
+        <div class="config-card">
+            <h3>Number of Courts</h3>
+            <div class="court-count">
+                <button class="btn btn-outline" disabled="@Stacking.Session.IsActive" @onclick="() => ChangeCourts(-1)">−</button>
+                <span class="court-count-value">@Stacking.Session.CourtsCount</span>
+                <button class="btn btn-outline" disabled="@Stacking.Session.IsActive" @onclick="() => ChangeCourts(1)">+</button>
+            </div>
+            <p class="muted">1 – 10 courts</p>
+        </div>
+    </div>
+
+    <section class="section">
+        <h2 class="section-title">Court Overview</h2>
+        <div class="courts-grid">
+            @foreach (var court in Stacking.Courts)
+            {
+                <CourtCard Court="@court"
+                           OnResult="(won) => RecordResult(court.Number, won)"
+                           OnRepair="(swap) => RepairCourt(court.Number, swap.PlayerIdA, swap.PlayerIdB)" />
+            }
+        </div>
+    </section>
+</div>
+
+@code {
+    private string? errorMessage;
+
+    private void SetMode(GameMode mode)
+    {
+        errorMessage = null;
+        try
+        {
+            SessionService.SetMode(mode);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void ChangeCourts(int delta)
+    {
+        errorMessage = null;
+        try
+        {
+            SessionService.SetCourts(Stacking.Session.CourtsCount + delta);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void RecordResult(int courtNumber, bool teamAWon)
+    {
+        errorMessage = null;
+        CourtService.RecordResult(courtNumber, teamAWon);
+    }
+
+    private void RepairCourt(int courtNumber, string playerIdA, string playerIdB)
+    {
+        errorMessage = null;
+        CourtService.Repair(courtNumber, playerIdA, playerIdB);
+    }
+}

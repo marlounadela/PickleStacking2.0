@@ -1,0 +1,16 @@
+{
+  "name": "PickleStacking",
+  "short_name": "PickleStacking",
+  "description": "Automatic pickleball matchmaking & court queue",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f8",
+  "theme_color": "#2e7d32",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}
