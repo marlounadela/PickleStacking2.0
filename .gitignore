@@ -35,3 +35,8 @@ Thumbs.db
 TestResults/
 *.trx
 test_output.txt
+
+# Backup and temp files
+*.bak
+*.tmp
+temp.cs
