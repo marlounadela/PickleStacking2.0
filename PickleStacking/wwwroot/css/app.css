@@ -14,6 +14,7 @@
     --next: #ef6c00;
     --radius: 12px;
     --shadow: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
+    --touch-min: 44px;
 }
 
 * {
@@ -28,6 +29,8 @@ html, body {
     font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
     font-size: 15px;
     line-height: 1.5;
+    overflow-x: hidden;
+    width: 100%;
 }
 
 h1 {
@@ -86,6 +89,8 @@ h2, h3 {
     font-size: 1.4rem;
 }
 
+/* ---------- Navigation ---------- */
+
 .nav-menu {
     display: flex;
     gap: 4px;
@@ -102,6 +107,7 @@ h2, h3 {
     font-weight: 600;
     font-size: 0.9rem;
     transition: background 0.15s, color 0.15s;
+    min-height: var(--touch-min);
 }
 
 .nav-link:hover {
@@ -190,6 +196,9 @@ h2, h3 {
     cursor: pointer;
     transition: filter 0.15s, transform 0.05s, background 0.15s;
     font-family: inherit;
+    min-height: var(--touch-min);
+    min-width: var(--touch-min);
+    white-space: nowrap;
 }
 
 .btn:active {
@@ -260,6 +269,8 @@ h2, h3 {
     color: var(--danger);
     padding: 5px 12px;
     font-size: 0.78rem;
+    min-height: var(--touch-min);
+    min-width: var(--touch-min);
 }
 
 .btn-remove:hover {
@@ -272,6 +283,8 @@ h2, h3 {
     color: var(--playing);
     padding: 5px 12px;
     font-size: 0.78rem;
+    min-height: var(--touch-min);
+    min-width: var(--touch-min);
 }
 
 .btn-edit:hover {
@@ -281,6 +294,8 @@ h2, h3 {
 .btn-sm {
     padding: 5px 12px;
     font-size: 0.78rem;
+    min-height: var(--touch-min);
+    min-width: var(--touch-min);
 }
 
 .row-actions {
@@ -321,6 +336,8 @@ h2, h3 {
     border-radius: var(--radius);
     padding: 16px;
     box-shadow: var(--shadow);
+    width: 100%;
+    max-width: 100%;
 }
 
 .court-card.court-active {
@@ -388,6 +405,7 @@ h2, h3 {
     padding: 2px 7px;
     min-width: 22px;
     text-align: center;
+    flex-shrink: 0;
 }
 
 .team-a .team-label { background: var(--playing); }
@@ -399,15 +417,20 @@ h2, h3 {
     flex-direction: column;
     gap: 4px;
     flex: 1;
+    min-width: 0;
 }
 
 .player-slot {
-    display: block;
+    display: flex;
+    align-items: center;
     padding: 4px 8px;
     border-radius: 6px;
     cursor: grab;
     transition: background 0.15s, box-shadow 0.15s;
     border: 1px dashed transparent;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    min-height: var(--touch-min);
 }
 
 .player-slot:hover {
@@ -421,6 +444,13 @@ h2, h3 {
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
 
+.player-slot.selected {
+    background: #c8e6c9;
+    border-color: var(--primary);
+    border-style: solid;
+    box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.3);
+}
+
 .vs {
     text-align: center;
     font-weight: 800;
@@ -429,9 +459,26 @@ h2, h3 {
     letter-spacing: 0.1em;
 }
 
+.repair-hint {
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--primary);
+    background: #e8f5e9;
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin-bottom: 10px;
+}
+
 .court-actions {
     display: flex;
     gap: 8px;
+}
+
+.court-actions .btn {
+    min-height: var(--touch-min);
+    font-size: 0.85rem;
+    padding: 12px 10px;
 }
 
 .court-empty {
@@ -465,10 +512,13 @@ h2, h3 {
     font-size: 0.8rem;
     color: var(--muted);
     min-width: 60px;
+    flex-shrink: 0;
 }
 
 .next-up-match {
     font-weight: 600;
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 .vs-small {
@@ -504,11 +554,15 @@ h2, h3 {
     font-weight: 800;
     color: var(--muted);
     min-width: 24px;
+    flex-shrink: 0;
 }
 
 .queue-name {
     font-weight: 600;
     flex: 1;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    min-width: 0;
 }
 
 /* ---------- Badges ---------- */
@@ -521,6 +575,7 @@ h2, h3 {
     padding: 3px 9px;
     border-radius: 20px;
     white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .badge-waiting { background: #eceff1; color: var(--waiting); }
@@ -537,12 +592,14 @@ h2, h3 {
     border-radius: var(--radius);
     overflow-x: auto;
     box-shadow: var(--shadow);
+    -webkit-overflow-scrolling: touch;
 }
 
 .status-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.9rem;
+    min-width: 0;
 }
 
 .status-table th {
@@ -554,11 +611,14 @@ h2, h3 {
     color: var(--muted);
     border-bottom: 1px solid var(--border);
     background: #fafbfc;
+    white-space: nowrap;
 }
 
 .status-table td {
     padding: 10px 16px;
     border-bottom: 1px solid var(--border);
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 .status-table tr:last-child td {
@@ -576,6 +636,7 @@ h2, h3 {
     gap: 10px;
     margin-bottom: 20px;
     max-width: 480px;
+    width: 100%;
 }
 
 .input {
@@ -586,6 +647,7 @@ h2, h3 {
     font-size: 0.95rem;
     font-family: inherit;
     background: var(--surface);
+    min-height: var(--touch-min);
 }
 
 .input:focus {
@@ -597,12 +659,14 @@ h2, h3 {
     display: flex;
     gap: 6px;
     align-items: center;
+    flex-wrap: wrap;
 }
 
 .input-edit {
     min-width: 140px;
     padding: 6px 10px;
     font-size: 0.85rem;
+    min-height: var(--touch-min);
 }
 
 .player-name {
@@ -663,6 +727,8 @@ h2, h3 {
     border-radius: var(--radius);
     padding: 16px;
     box-shadow: var(--shadow);
+    width: 100%;
+    max-width: 100%;
 }
 
 .history-header {
@@ -707,6 +773,8 @@ h2, h3 {
     border-radius: 8px;
     background: var(--bg);
     font-weight: 600;
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 .history-team.winner {
@@ -716,6 +784,7 @@ h2, h3 {
 
 .history-team .team-label {
     background: var(--muted);
+    flex-shrink: 0;
 }
 
 .history-team.winner .team-label {
@@ -758,7 +827,34 @@ h2, h3 {
     font-size: 1.05rem;
 }
 
-/* ---------- Responsive ---------- */
+/* ---------- Page header ---------- */
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+}
+
+/* ---------- Responsive: Tablet (768px–1199px) ---------- */
+
+@media (max-width: 1199px) {
+    .app-main {
+        padding: 20px;
+    }
+}
+
+/* ---------- Responsive: Tablet & below (max-width: 991px) ---------- */
+
+@media (max-width: 991px) {
+    .history-list {
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    }
+}
+
+/* ---------- Responsive: Tablet (max-width: 768px) ---------- */
 
 @media (max-width: 768px) {
     .app-main {
@@ -766,7 +862,7 @@ h2, h3 {
     }
 
     .app-header {
-        padding: 0 16px;
+        padding: 0 12px;
     }
 
     .dashboard-columns {
@@ -779,5 +875,516 @@ h2, h3 {
 
     .dashboard-header {
         flex-direction: column;
+    }
+
+    .session-stats {
+        width: 100%;
+    }
+
+    .stat {
+        flex: 1;
+        min-width: 70px;
+    }
+
+    .stats-row {
+        display: flex;
+        gap: 8px;
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .dashboard-header h1,
+    .page-header h1 {
+        font-size: 1.3rem;
+    }
+
+    .section-title {
+        font-size: 0.95rem;
+    }
+
+    .court-card {
+        padding: 14px;
+    }
+
+    .team {
+        padding: 6px 10px;
+    }
+
+    .player-slot {
+        padding: 6px 8px;
+        min-height: var(--touch-min);
+    }
+
+    .court-actions .btn {
+        padding: 14px 10px;
+        font-size: 0.9rem;
+    }
+
+    .next-up-item {
+        padding: 8px 12px;
+    }
+
+    .queue-item {
+        padding: 8px 12px;
+    }
+
+    .empty-state.big {
+        padding: 32px 16px;
+    }
+
+    .config-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .add-player {
+        max-width: 100%;
+        flex-direction: column;
+    }
+
+    .add-player .btn {
+        width: 100%;
+    }
+
+    .edit-player {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .input-edit {
+        min-width: 100%;
+        width: 100%;
+    }
+
+    .edit-player .btn {
+        width: 100%;
+    }
+
+    .status-table th,
+    .status-table td {
+        padding: 8px 10px;
+    }
+
+    .history-list {
+        grid-template-columns: 1fr;
+    }
+
+    .session-controls .btn {
+        flex: 1;
+        text-align: center;
+    }
+}
+
+/* ---------- Responsive: Mobile (320px–767px) ---------- */
+
+@media (max-width: 767px) {
+    html {
+        font-size: 14px;
+    }
+
+    .app-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        padding: 0;
+    }
+
+    .brand {
+        padding: 10px 16px;
+        font-size: 1rem;
+    }
+
+    .brand-mark {
+        font-size: 1.2rem;
+    }
+
+    .nav-menu {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 0 12px 8px;
+        gap: 2px;
+        scrollbar-width: none;
+    }
+
+    .nav-menu::-webkit-scrollbar {
+        display: none;
+    }
+
+    .nav-link {
+        padding: 6px 10px;
+        font-size: 0.8rem;
+        white-space: nowrap;
+        min-height: 36px;
+    }
+
+    .nav-icon {
+        font-size: 0.9rem;
+    }
+
+    .app-main {
+        padding: 12px;
+    }
+
+    .dashboard-header {
+        margin-bottom: 14px;
+    }
+
+    .dashboard-header h1 {
+        font-size: 1.2rem;
+    }
+
+    .session-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+
+    .stat {
+        min-width: 0;
+        padding: 8px 10px;
+    }
+
+    .stat-value {
+        font-size: 1rem;
+    }
+
+    .session-controls {
+        flex-direction: column;
+    }
+
+    .session-controls .btn {
+        width: 100%;
+        text-align: center;
+    }
+
+    .courts-grid {
+        gap: 12px;
+    }
+
+    .court-card {
+        padding: 12px;
+    }
+
+    .court-header {
+        margin-bottom: 10px;
+    }
+
+    .court-name {
+        font-size: 0.9rem;
+    }
+
+    .court-match {
+        gap: 6px;
+    }
+
+    .team {
+        padding: 6px 8px;
+        gap: 6px;
+    }
+
+    .team-label {
+        font-size: 0.65rem;
+        min-width: 20px;
+    }
+
+    .team-players {
+        gap: 3px;
+    }
+
+    .player-slot {
+        padding: 4px 6px;
+        font-size: 0.85rem;
+        min-height: 38px;
+    }
+
+    .vs {
+        font-size: 0.75rem;
+    }
+
+    .court-actions {
+        gap: 6px;
+    }
+
+    .court-actions .btn {
+        padding: 12px 6px;
+        font-size: 0.85rem;
+    }
+
+    .dashboard-columns {
+        gap: 14px;
+    }
+
+    .next-up-item {
+        padding: 8px 10px;
+        gap: 8px;
+    }
+
+    .next-up-court {
+        min-width: 50px;
+        font-size: 0.75rem;
+    }
+
+    .next-up-match {
+        font-size: 0.85rem;
+    }
+
+    .queue-item {
+        padding: 8px 10px;
+        gap: 8px;
+    }
+
+    .queue-number {
+        min-width: 20px;
+        font-size: 0.85rem;
+    }
+
+    .queue-name {
+        font-size: 0.85rem;
+    }
+
+    .section {
+        margin-bottom: 20px;
+    }
+
+    .section-title {
+        font-size: 0.9rem;
+        margin-bottom: 10px;
+    }
+
+    .table-wrap {
+        border-radius: 8px;
+    }
+
+    .status-table {
+        font-size: 0.82rem;
+    }
+
+    .status-table th {
+        padding: 8px 8px;
+        font-size: 0.65rem;
+    }
+
+    .status-table td {
+        padding: 8px 8px;
+    }
+
+    .status-table th:first-child,
+    .status-table td:first-child {
+        padding-left: 10px;
+    }
+
+    .status-table th:last-child,
+    .status-table td:last-child {
+        padding-right: 10px;
+    }
+
+    .row-actions {
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .btn-remove,
+    .btn-edit {
+        padding: 6px 10px;
+        font-size: 0.75rem;
+        min-height: 36px;
+        min-width: 60px;
+    }
+
+    .btn-sm {
+        padding: 6px 12px;
+        min-height: 36px;
+    }
+
+    .add-player {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .add-player .btn {
+        width: 100%;
+    }
+
+    .input {
+        padding: 10px 12px;
+        font-size: 16px; /* Prevents iOS zoom on focus */
+    }
+
+    .input-edit {
+        font-size: 16px; /* Prevents iOS zoom on focus */
+        min-width: 0;
+        width: 100%;
+    }
+
+    .edit-player {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+    }
+
+    .edit-player .btn {
+        width: 100%;
+    }
+
+    .player-name {
+        font-size: 0.85rem;
+    }
+
+    .config-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .config-card {
+        padding: 14px;
+    }
+
+    .config-card h3 {
+        font-size: 0.9rem;
+    }
+
+    .mode-toggle {
+        gap: 6px;
+    }
+
+    .mode-toggle .btn {
+        flex: 1;
+        text-align: center;
+    }
+
+    .court-count-value {
+        font-size: 1.2rem;
+        min-width: 32px;
+    }
+
+    .history-list {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .history-card {
+        padding: 12px;
+    }
+
+    .history-header {
+        gap: 6px;
+    }
+
+    .history-number {
+        font-size: 0.9rem;
+    }
+
+    .history-team {
+        padding: 5px 8px;
+        font-size: 0.85rem;
+    }
+
+    .history-team .team-label {
+        font-size: 0.65rem;
+        min-width: 20px;
+    }
+
+    .history-time {
+        font-size: 0.75rem;
+    }
+
+    .alert {
+        padding: 10px 12px;
+        font-size: 0.85rem;
+    }
+
+    .empty-state {
+        padding: 16px;
+        font-size: 0.85rem;
+    }
+
+    .empty-state.big {
+        padding: 24px 12px;
+        font-size: 0.95rem;
+    }
+
+    .page-header {
+        margin-bottom: 14px;
+    }
+
+    .page-header h1 {
+        font-size: 1.2rem;
+    }
+}
+
+/* ---------- Responsive: Small mobile (320px–374px) ---------- */
+
+@media (max-width: 374px) {
+    .session-stats {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .stat {
+        min-width: 0;
+        padding: 6px 8px;
+    }
+
+    .stat-value {
+        font-size: 0.9rem;
+    }
+
+    .stat-label {
+        font-size: 0.65rem;
+    }
+
+    .court-card {
+        padding: 10px;
+    }
+
+    .court-actions .btn {
+        font-size: 0.8rem;
+        padding: 10px 4px;
+    }
+
+    .player-slot {
+        font-size: 0.8rem;
+        min-height: 36px;
+    }
+
+    .status-table {
+        font-size: 0.78rem;
+    }
+
+    .status-table th,
+    .status-table td {
+        padding: 6px 6px;
+    }
+
+    .nav-link {
+        padding: 5px 8px;
+        font-size: 0.75rem;
+    }
+}
+
+/* ---------- Safe area support for mobile devices ---------- */
+
+@supports (padding: env(safe-area-inset-top)) {
+    .app-header {
+        padding-left: calc(12px + env(safe-area-inset-left));
+        padding-right: calc(12px + env(safe-area-inset-right));
+        padding-top: env(safe-area-inset-top);
+    }
+
+    .app-main {
+        padding-left: calc(12px + env(safe-area-inset-left));
+        padding-right: calc(12px + env(safe-area-inset-right));
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+}
+
+/* ---------- Print styles ---------- */
+
+@media print {
+    .app-header {
+        position: static;
+    }
+    
+    .btn {
+        display: none;
     }
 }

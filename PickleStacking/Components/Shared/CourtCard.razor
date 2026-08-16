@@ -20,13 +20,14 @@
                     @for (var i = 0; i < Court.TeamA!.Players.Count; i++)
                     {
                         var player = Court.TeamA.Players[i];
-                        <span class="player-slot"
+                        <span class="player-slot @(selectedPlayerId == player.Id ? "selected" : "")"
                               draggable="true"
                               @ondragstart="() => OnDragStart(player.Id)"
                               @ondragover="OnDragOver"
                               @ondragover:preventDefault="true"
                               @ondrop="() => OnDrop(player.Id)"
-                              title="Drag to swap players on this court">
+                              @onclick="() => OnSlotTap(player.Id)"
+                              title="Drag on desktop or tap to select, then tap another player to swap">
                             @player.Name
                         </span>
                     }
@@ -39,19 +40,25 @@
                     @for (var i = 0; i < Court.TeamB!.Players.Count; i++)
                     {
                         var player = Court.TeamB.Players[i];
-                        <span class="player-slot"
+                        <span class="player-slot @(selectedPlayerId == player.Id ? "selected" : "")"
                               draggable="true"
                               @ondragstart="() => OnDragStart(player.Id)"
                               @ondragover="OnDragOver"
                               @ondragover:preventDefault="true"
                               @ondrop="() => OnDrop(player.Id)"
-                              title="Drag to swap players on this court">
+                              @onclick="() => OnSlotTap(player.Id)"
+                              title="Drag on desktop or tap to select, then tap another player to swap">
                             @player.Name
                         </span>
                     }
                 </div>
             </div>
         </div>
+
+        @if (selectedPlayerId != null)
+        {
+            <div class="repair-hint">Tap another player to swap</div>
+        }
 
         <div class="court-actions">
             <button class="btn btn-win" @onclick="() => HandleResult(true)">TEAM A WON</button>
@@ -75,6 +82,7 @@
     public EventCallback<(string PlayerIdA, string PlayerIdB)> OnRepair { get; set; }
 
     private string? draggedPlayerId;
+    private string? selectedPlayerId;
 
     private void OnDragStart(string playerId)
     {
@@ -96,11 +104,37 @@
 
         var playerIdA = draggedPlayerId;
         draggedPlayerId = null;
+        if (selectedPlayerId == playerIdA || selectedPlayerId == targetPlayerId)
+        {
+            selectedPlayerId = null;
+        }
         await OnRepair.InvokeAsync((playerIdA, targetPlayerId));
+    }
+
+    private async Task OnSlotTap(string playerId)
+    {
+        // Touch/mouse tap repair: first tap selects, second tap on another player swaps.
+        if (selectedPlayerId == null)
+        {
+            selectedPlayerId = playerId;
+            return;
+        }
+
+        if (selectedPlayerId == playerId)
+        {
+            // Tap the same player again to deselect
+            selectedPlayerId = null;
+            return;
+        }
+
+        var fromId = selectedPlayerId;
+        selectedPlayerId = null;
+        await OnRepair.InvokeAsync((fromId, playerId));
     }
 
     private async Task HandleResult(bool teamAWon)
     {
+        selectedPlayerId = null;
         await OnResult.InvokeAsync(teamAWon);
     }
 }
