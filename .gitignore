@@ -40,3 +40,5 @@ test_output.txt
 *.bak
 *.tmp
 temp.cs
+.vercel
+.env*

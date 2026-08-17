@@ -29,7 +29,6 @@ html, body {
     font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
     font-size: 15px;
     line-height: 1.5;
-    overflow-x: hidden;
     width: 100%;
 }
 
@@ -671,6 +670,8 @@ h2, h3 {
 
 .player-name {
     font-weight: 600;
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 /* ---------- Courts config ---------- */
@@ -866,11 +867,11 @@ h2, h3 {
     }
 
     .dashboard-columns {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr 1fr;
     }
 
     .courts-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     }
 
     .dashboard-header {
@@ -933,7 +934,7 @@ h2, h3 {
     }
 
     .config-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     }
 
     .add-player {
@@ -965,7 +966,7 @@ h2, h3 {
     }
 
     .history-list {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     }
 
     .session-controls .btn {
@@ -979,6 +980,12 @@ h2, h3 {
 @media (max-width: 767px) {
     html {
         font-size: 14px;
+    }
+
+    .btn {
+        white-space: normal;
+        word-break: break-word;
+        overflow-wrap: break-word;
     }
 
     .app-header {
@@ -998,22 +1005,19 @@ h2, h3 {
     }
 
     .nav-menu {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
+        display: flex;
+        flex-wrap: wrap;
         padding: 0 12px 8px;
-        gap: 2px;
-        scrollbar-width: none;
-    }
-
-    .nav-menu::-webkit-scrollbar {
-        display: none;
+        gap: 4px;
     }
 
     .nav-link {
-        padding: 6px 10px;
+        padding: 8px 10px;
         font-size: 0.8rem;
         white-space: nowrap;
-        min-height: 36px;
+        min-height: var(--touch-min);
+        flex: 1 1 auto;
+        justify-content: center;
     }
 
     .nav-icon {
@@ -1054,9 +1058,12 @@ h2, h3 {
     .session-controls .btn {
         width: 100%;
         text-align: center;
+        white-space: normal;
+        line-height: 1.2;
     }
 
     .courts-grid {
+        grid-template-columns: 1fr;
         gap: 12px;
     }
 
@@ -1091,9 +1098,9 @@ h2, h3 {
     }
 
     .player-slot {
-        padding: 4px 6px;
+        padding: 6px 6px;
         font-size: 0.85rem;
-        min-height: 38px;
+        min-height: var(--touch-min);
     }
 
     .vs {
@@ -1107,9 +1114,12 @@ h2, h3 {
     .court-actions .btn {
         padding: 12px 6px;
         font-size: 0.85rem;
+        white-space: normal;
+        line-height: 1.2;
     }
 
     .dashboard-columns {
+        grid-template-columns: 1fr;
         gap: 14px;
     }
 
@@ -1184,15 +1194,15 @@ h2, h3 {
 
     .btn-remove,
     .btn-edit {
-        padding: 6px 10px;
+        padding: 8px 10px;
         font-size: 0.75rem;
-        min-height: 36px;
-        min-width: 60px;
+        min-height: var(--touch-min);
+        min-width: 64px;
     }
 
     .btn-sm {
-        padding: 6px 12px;
-        min-height: 36px;
+        padding: 8px 12px;
+        min-height: var(--touch-min);
     }
 
     .add-player {
@@ -1250,6 +1260,8 @@ h2, h3 {
     .mode-toggle .btn {
         flex: 1;
         text-align: center;
+        white-space: normal;
+        line-height: 1.2;
     }
 
     .court-count-value {
@@ -1343,7 +1355,7 @@ h2, h3 {
 
     .player-slot {
         font-size: 0.8rem;
-        min-height: 36px;
+        min-height: var(--touch-min);
     }
 
     .status-table {
@@ -1356,8 +1368,9 @@ h2, h3 {
     }
 
     .nav-link {
-        padding: 5px 8px;
+        padding: 8px 6px;
         font-size: 0.75rem;
+        min-height: var(--touch-min);
     }
 }
 
@@ -1452,6 +1465,8 @@ h2, h3 {
     font-size: 1.1rem;
     font-weight: 700;
     color: var(--text);
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 /* Podium */
@@ -1557,6 +1572,8 @@ h2, h3 {
 .award-detail {
     font-size: 0.8rem;
     color: var(--muted);
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 /* Ranking table */
@@ -1666,6 +1683,8 @@ h2, h3 {
 
     .summary-actions .btn {
         width: 100%;
+        white-space: normal;
+        line-height: 1.2;
     }
 
     .podium {
