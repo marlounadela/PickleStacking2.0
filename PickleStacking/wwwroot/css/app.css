@@ -1398,6 +1398,339 @@ h2, h3 {
     top: 0.5rem;
 }
 
+/* ---------- Summary page ---------- */
+
+.summary-header {
+    align-items: center;
+}
+
+.summary-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.summary-report {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+}
+
+.summary-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: var(--shadow);
+}
+
+.summary-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+}
+
+.summary-stat-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    text-align: center;
+}
+
+.summary-stat-label {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin-bottom: 4px;
+}
+
+.summary-stat-value {
+    display: block;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+/* Podium */
+.podium {
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 12px 0;
+}
+
+.podium-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    text-align: center;
+    min-width: 160px;
+    box-shadow: var(--shadow);
+}
+
+.podium-1 {
+    background: linear-gradient(135deg, #fff8e1, #ffecb3);
+    border-color: #ffd54f;
+    order: 2;
+    transform: scale(1.08);
+    min-width: 180px;
+}
+
+.podium-2 {
+    order: 1;
+}
+
+.podium-3 {
+    order: 3;
+}
+
+.podium-medal {
+    font-size: 2.5rem;
+    margin-bottom: 8px;
+}
+
+.podium-name {
+    font-weight: 800;
+    font-size: 1.1rem;
+    margin-bottom: 4px;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+.podium-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+}
+
+.podium-stats {
+    font-size: 0.85rem;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+/* Awards */
+.awards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+}
+
+.award-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    text-align: center;
+    box-shadow: var(--shadow);
+}
+
+.award-emoji {
+    font-size: 2rem;
+    margin-bottom: 6px;
+}
+
+.award-title {
+    font-weight: 800;
+    font-size: 0.9rem;
+    margin-bottom: 4px;
+}
+
+.award-player {
+    font-weight: 700;
+    color: var(--primary);
+    font-size: 1rem;
+    margin-bottom: 4px;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+.award-detail {
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+/* Ranking table */
+.ranking-table .rank-cell {
+    width: 60px;
+}
+
+.rank-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--bg);
+    color: var(--muted);
+    font-weight: 800;
+    font-size: 0.85rem;
+}
+
+.rank-1 {
+    background: #ffd54f;
+    color: #5d4037;
+}
+
+.rank-2 {
+    background: #cfd8dc;
+    color: #37474f;
+}
+
+.rank-3 {
+    background: #d7a86e;
+    color: #4e342e;
+}
+
+.rank-top td {
+    background: #fafbfc;
+    font-weight: 600;
+}
+
+.rank-top .player-cell {
+    color: var(--primary);
+}
+
+.player-cell {
+    font-weight: 600;
+}
+
+/* Responsive: Summary */
+@media (max-width: 768px) {
+    .summary-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .summary-actions {
+        width: 100%;
+    }
+
+    .summary-actions .btn {
+        flex: 1;
+        text-align: center;
+        font-size: 0.8rem;
+        padding: 10px 8px;
+    }
+
+    .summary-section {
+        padding: 14px;
+    }
+
+    .summary-stats-grid {
+        grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+        gap: 8px;
+    }
+
+    .podium {
+        gap: 10px;
+    }
+
+    .podium-card {
+        min-width: 130px;
+        padding: 14px 16px;
+    }
+
+    .podium-1 {
+        min-width: 150px;
+    }
+
+    .podium-medal {
+        font-size: 2rem;
+    }
+
+    .podium-name {
+        font-size: 0.95rem;
+    }
+
+    .awards-grid {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 8px;
+    }
+}
+
+@media (max-width: 767px) {
+    .summary-actions {
+        flex-direction: column;
+    }
+
+    .summary-actions .btn {
+        width: 100%;
+    }
+
+    .podium {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .podium-card {
+        width: 100%;
+        max-width: 280px;
+        order: 0 !important;
+        transform: none;
+    }
+
+    .podium-1 {
+        order: -1 !important;
+    }
+
+    .summary-stats-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .summary-stat-card {
+        padding: 10px 8px;
+    }
+
+    .summary-stat-value {
+        font-size: 0.95rem;
+    }
+
+    .awards-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .award-card {
+        padding: 12px 8px;
+    }
+
+    .award-emoji {
+        font-size: 1.6rem;
+    }
+
+    .award-title {
+        font-size: 0.8rem;
+    }
+
+    .award-player {
+        font-size: 0.85rem;
+    }
+
+    .award-detail {
+        font-size: 0.7rem;
+    }
+}
+
+@media (max-width: 374px) {
+    .summary-stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .awards-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* ---------- Print styles ---------- */
 
 @media print {
@@ -1407,5 +1740,41 @@ h2, h3 {
     
     .btn {
         display: none;
+    }
+
+    .no-print {
+        display: none !important;
+    }
+
+    .summary-page {
+        padding: 0;
+    }
+
+    .summary-header {
+        display: none;
+    }
+
+    .summary-section {
+        box-shadow: none;
+        border: none;
+        padding: 0;
+        margin-bottom: 20px;
+        break-inside: avoid;
+    }
+
+    .summary-report {
+        gap: 20px;
+    }
+
+    .podium-card {
+        box-shadow: none;
+    }
+
+    .award-card {
+        box-shadow: none;
+    }
+
+    .table-wrap {
+        box-shadow: none;
     }
 }

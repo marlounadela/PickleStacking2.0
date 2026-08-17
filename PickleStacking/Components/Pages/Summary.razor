@@ -1,0 +1,322 @@
+@page "/summary"
+@inject SummaryService SummaryService
+@inject StackingService Stacking
+@inject IJSRuntime JS
+
+<PageTitle>Summary - PickleStacking</PageTitle>
+
+<div class="page summary-page">
+    <div class="page-header summary-header">
+        <div>
+            <h1>Game Summary</h1>
+            <p class="subtitle">Session results & player awards</p>
+        </div>
+        <div class="summary-actions no-print">
+            <button class="btn btn-primary" @onclick="DownloadPdf">⬇ DOWNLOAD PDF</button>
+            <button class="btn btn-secondary" @onclick="DownloadWord">⬇ DOWNLOAD WORD</button>
+            <button class="btn btn-outline" @onclick="PrintSummary">🖨 PRINT SUMMARY</button>
+        </div>
+    </div>
+
+    @if (errorMessage != null)
+    {
+        <div class="alert alert-error">@errorMessage</div>
+    }
+
+    @if (summary == null)
+    {
+        <div class="empty-state big">
+            <p>No completed games yet.</p>
+            <p class="muted">Play some games first, then come back to see the summary.</p>
+        </div>
+    }
+    else
+    {
+        <div class="summary-report">
+            <!-- Session Summary -->
+            <section class="summary-section">
+                <h2 class="section-title">Session Summary</h2>
+                <div class="summary-stats-grid">
+                    <div class="summary-stat-card">
+                        <span class="summary-stat-label">Date</span>
+                        <span class="summary-stat-value">@(summary.SessionDate?.ToString("MMM d, yyyy") ?? "—")</span>
+                    </div>
+                    <div class="summary-stat-card">
+                        <span class="summary-stat-label">Time</span>
+                        <span class="summary-stat-value">@(summary.SessionDate?.ToString("h:mm tt") ?? "—")</span>
+                    </div>
+                    <div class="summary-stat-card">
+                        <span class="summary-stat-label">Players</span>
+                        <span class="summary-stat-value">@summary.PlayerCount</span>
+                    </div>
+                    <div class="summary-stat-card">
+                        <span class="summary-stat-label">Courts</span>
+                        <span class="summary-stat-value">@summary.CourtCount</span>
+                    </div>
+                    <div class="summary-stat-card">
+                        <span class="summary-stat-label">Mode</span>
+                        <span class="summary-stat-value">@summary.Mode</span>
+                    </div>
+                    <div class="summary-stat-card">
+                        <span class="summary-stat-label">Games Played</span>
+                        <span class="summary-stat-value">@summary.TotalGames</span>
+                    </div>
+                    <div class="summary-stat-card">
+                        <span class="summary-stat-label">Duration</span>
+                        <span class="summary-stat-value">@FormatDuration(summary.Duration)</span>
+                    </div>
+                    <div class="summary-stat-card">
+                        <span class="summary-stat-label">Total Wins</span>
+                        <span class="summary-stat-value">@summary.TotalWins</span>
+                    </div>
+                    <div class="summary-stat-card">
+                        <span class="summary-stat-label">Total Losses</span>
+                        <span class="summary-stat-value">@summary.TotalLosses</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Top 3 Podium -->
+            @if (topThree.Count > 0)
+            {
+                <section class="summary-section">
+                    <h2 class="section-title">Top Players</h2>
+                    <div class="podium">
+                        @foreach (var player in topThree)
+                        {
+                            <div class="podium-card podium-@player.Rank">
+                                <div class="podium-medal">@GetMedal(player.Rank)</div>
+                                <div class="podium-name">@player.PlayerName</div>
+                                <div class="podium-title">@GetPodiumTitle(player.Rank)</div>
+                                <div class="podium-stats">@player.Wins W / @player.Losses L · @player.WinRateDisplay</div>
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
+
+            <!-- Awards -->
+            @if (summary.Awards.Count > 0)
+            {
+                <section class="summary-section">
+                    <h2 class="section-title">Awards</h2>
+                    <div class="awards-grid">
+                        @foreach (var award in summary.Awards)
+                        {
+                            <div class="award-card">
+                                <div class="award-emoji">@award.Emoji</div>
+                                <div class="award-title">@award.Title</div>
+                                <div class="award-player">@award.PlayerName</div>
+                                <div class="award-detail">@award.Detail</div>
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
+
+            <!-- Full Ranking -->
+            <section class="summary-section">
+                <h2 class="section-title">Full Ranking</h2>
+                <div class="table-wrap">
+                    <table class="status-table ranking-table">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Player</th>
+                                <th>Games</th>
+                                <th>Wins</th>
+                                <th>Losses</th>
+                                <th>Win Rate</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var player in summary.Rankings)
+                            {
+                                <tr class="@(player.Rank <= 3 ? "rank-top" : "")">
+                                    <td class="rank-cell">
+                                        <span class="rank-badge rank-@player.Rank">@player.Rank</span>
+                                    </td>
+                                    <td class="player-cell">@player.PlayerName</td>
+                                    <td>@player.GamesPlayed</td>
+                                    <td>@player.Wins</td>
+                                    <td>@player.Losses</td>
+                                    <td>@player.WinRateDisplay</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Completed Matches -->
+            @if (Stacking.History.Any())
+            {
+                <section class="summary-section">
+                    <h2 class="section-title">Completed Matches</h2>
+                    <div class="history-list">
+                        @foreach (var game in Stacking.History)
+                        {
+                            <div class="history-card">
+                                <div class="history-header">
+                                    <span class="history-number">Game #@game.Number</span>
+                                    <span class="history-court">Court @game.CourtNumber</span>
+                                    <span class="history-mode">@game.Mode</span>
+                                </div>
+                                <div class="history-match">
+                                    <div class="history-team @(game.WinningTeam == "A" ? "winner" : "")">
+                                        <span class="team-label">WIN</span>
+                                        <span>@game.TeamA.DisplayName</span>
+                                    </div>
+                                    <div class="history-team @(game.WinningTeam == "B" ? "winner" : "")">
+                                        <span class="team-label">WIN</span>
+                                        <span>@game.TeamB.DisplayName</span>
+                                    </div>
+                                </div>
+                                <div class="history-time">@game.CompletedAt.ToLocalTime().ToString("h:mm tt")</div>
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private SessionSummary? summary;
+    private List<PlayerRanking> topThree = new();
+    private string? errorMessage;
+
+    protected override void OnInitialized()
+    {
+        try
+        {
+            summary = SummaryService.BuildSummary();
+            topThree = summary.Rankings.Where(r => r.GamesPlayed > 0).Take(3).ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            summary = null;
+        }
+    }
+
+    private static string FormatDuration(TimeSpan? duration)
+    {
+        if (duration == null)
+            return "—";
+        if (duration.Value.TotalHours >= 1)
+            return $"{(int)duration.Value.TotalHours}h {duration.Value.Minutes}m";
+        if (duration.Value.TotalMinutes >= 1)
+            return $"{(int)duration.Value.TotalMinutes}m";
+        return $"{Math.Max(1, (int)duration.Value.TotalSeconds)}s";
+    }
+
+    private static string GetMedal(int rank) => rank switch
+    {
+        1 => "🥇",
+        2 => "🥈",
+        3 => "🥉",
+        _ => ""
+    };
+
+    private static string GetPodiumTitle(int rank) => rank switch
+    {
+        1 => "Champion",
+        2 => "Runner-Up",
+        3 => "Third Place",
+        _ => ""
+    };
+
+    private async Task DownloadPdf()
+    {
+        try
+        {
+            var content = BuildReportHtml();
+            await JS.InvokeVoidAsync("pickleStacking.downloadPdf", content);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private async Task DownloadWord()
+    {
+        try
+        {
+            var content = BuildReportHtml();
+            await JS.InvokeVoidAsync("pickleStacking.downloadWord", content);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private async Task PrintSummary()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("pickleStacking.printSummary");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private string BuildReportHtml()
+    {
+        if (summary == null)
+            return string.Empty;
+
+        var sb = new System.Text.StringBuilder();
+
+        // Header
+        sb.AppendLine("<h1>🥒 PICKLESTACKING</h1>");
+        sb.AppendLine("<h2 style=\"margin-top:0;\">GAME SUMMARY</h2>");
+        sb.AppendLine($"<div class=\"subtitle\">Generated {DateTime.Now.ToLocalTime():MMM d, yyyy h:mm tt}</div>");
+        sb.AppendLine("<hr class=\"divider\" />");
+
+        // Session Information
+        sb.AppendLine("<h2>Session Information</h2>");
+        sb.AppendLine("<div class=\"session-info\">");
+        sb.AppendLine($"<div><span class=\"label\">Date:</span> <span class=\"value\">{(summary.SessionDate?.ToString("MMM d, yyyy") ?? "—")}</span></div>");
+        sb.AppendLine($"<div><span class=\"label\">Time:</span> <span class=\"value\">{(summary.SessionDate?.ToString("h:mm tt") ?? "—")}</span></div>");
+        sb.AppendLine($"<div><span class=\"label\">Players:</span> <span class=\"value\">{summary.PlayerCount}</span></div>");
+        sb.AppendLine($"<div><span class=\"label\">Courts:</span> <span class=\"value\">{summary.CourtCount}</span></div>");
+        sb.AppendLine($"<div><span class=\"label\">Mode:</span> <span class=\"value\">{summary.Mode}</span></div>");
+        sb.AppendLine($"<div><span class=\"label\">Games Played:</span> <span class=\"value\">{summary.TotalGames}</span></div>");
+        sb.AppendLine($"<div><span class=\"label\">Duration:</span> <span class=\"value\">{FormatDuration(summary.Duration)}</span></div>");
+        sb.AppendLine($"<div><span class=\"label\">Total Wins:</span> <span class=\"value\">{summary.TotalWins}</span></div>");
+        sb.AppendLine($"<div><span class=\"label\">Total Losses:</span> <span class=\"value\">{summary.TotalLosses}</span></div>");
+        sb.AppendLine("</div>");
+        sb.AppendLine("<hr class=\"divider\" />");
+
+        // Player Ranking
+        sb.AppendLine("<h2>Player Ranking</h2>");
+        sb.AppendLine("<table>");
+        sb.AppendLine("<thead><tr><th>Rank</th><th>Player</th><th>Games</th><th>Wins</th><th>Losses</th><th>Win Rate</th></tr></thead>");
+        sb.AppendLine("<tbody>");
+        foreach (var r in summary.Rankings)
+        {
+            sb.AppendLine($"<tr><td>{r.Rank}</td><td>{r.PlayerName}</td><td>{r.GamesPlayed}</td><td>{r.Wins}</td><td>{r.Losses}</td><td>{r.WinRateDisplay}</td></tr>");
+        }
+        sb.AppendLine("</tbody></table>");
+        sb.AppendLine("<hr class=\"divider\" />");
+
+        // Awards
+        sb.AppendLine("<h2>Awards</h2>");
+        foreach (var award in summary.Awards)
+        {
+            sb.AppendLine($"<div class=\"award\"><span class=\"emoji\">{award.Emoji}</span><span class=\"title\">{award.Title}:</span> <span class=\"player\">{award.PlayerName}</span> <span style=\"color:#6b7a8c;\">({award.Detail})</span></div>");
+        }
+        sb.AppendLine("<hr class=\"divider\" />");
+
+        // Footer
+        sb.AppendLine("<div class=\"footer\">END OF SESSION — PickleStacking</div>");
+
+        return sb.ToString();
+    }
+}

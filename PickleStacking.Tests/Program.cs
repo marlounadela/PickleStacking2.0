@@ -27,7 +27,11 @@ var tests = new List<(string Name, Func<Task> Run)>
     ("Scenario 21: Court repair - game result uses repaired teams", Scenario21),
     ("Scenario 22: Player rename preserves identity and stats", Scenario22),
     ("Scenario 23: Player rename updates everywhere", Scenario23),
-    ("Scenario 24: Court repair does not alter queue or other courts", Scenario24)
+    ("Scenario 24: Court repair does not alter queue or other courts", Scenario24),
+    ("Scenario 25: Summary - no games shows empty state", Scenario25),
+    ("Scenario 26: Summary - ranking calculation", Scenario26),
+    ("Scenario 27: Summary - awards", Scenario27),
+    ("Scenario 28: Summary - ties and deterministic ordering", Scenario28)
 };
 
 var passed = 0;
@@ -816,6 +820,170 @@ static async Task Scenario24()
     // Waiting Queue unchanged
     var waitingAfter = svc.WaitingQueue.Select(p => p.Name).OrderBy(n => n).ToArray();
     Assert(waitingBefore.SequenceEqual(waitingAfter), "Waiting Queue should be unchanged after repair");
+    await Task.CompletedTask;
+}
+
+// ---------------------------------------------------------------------
+// Scenario 25: Summary - no games shows empty state
+// ---------------------------------------------------------------------
+
+static async Task Scenario25()
+{
+    var svc = NewService();
+    svc.ChangeCourts(1);
+    svc.ChangeMode(GameMode.Doubles);
+    AddPlayers(svc, 4);
+
+    var summaryService = new SummaryService(svc);
+    var summary = summaryService.BuildSummary();
+
+    Assert(summary.TotalGames == 0, "No games should be recorded");
+    Assert(summary.Rankings.Count == 4, "All 4 players should be in rankings");
+    Assert(summary.Awards.Count == 0, "No awards should be given with no games");
+    Assert(summary.SessionDate == null, "No session date should be set");
+    Assert(summary.Duration == null, "No duration should be set");
+    await Task.CompletedTask;
+}
+
+// ---------------------------------------------------------------------
+// Scenario 26: Summary - ranking calculation
+// ---------------------------------------------------------------------
+
+static async Task Scenario26()
+{
+    var svc = NewService();
+    svc.ChangeCourts(1);
+    svc.ChangeMode(GameMode.Doubles);
+    AddPlayers(svc, 4);
+
+    svc.StartSession();
+    // Play 3 games. The stacking algorithm rotates teams to avoid repeated partners.
+    // Team A always wins (we always pass true).
+    svc.RecordResult(1, true);
+    svc.RecordResult(1, true);
+    svc.RecordResult(1, true);
+
+    var summaryService = new SummaryService(svc);
+    var summary = summaryService.BuildSummary();
+
+    Assert(summary.TotalGames == 3, "Should have 3 games");
+    Assert(summary.TotalWins == 6, "Total wins should be 6 (3 games x 2 winners)");
+    Assert(summary.TotalLosses == 6, "Total losses should be 6 (3 games x 2 losers)");
+
+    // All players should have played 3 games each
+    Assert(summary.Rankings.All(r => r.GamesPlayed == 3), "All players should have 3 games");
+
+    // Total wins across all players should equal total losses
+    var totalWins = summary.Rankings.Sum(r => r.Wins);
+    var totalLosses = summary.Rankings.Sum(r => r.Losses);
+    Assert(totalWins == 6, "Total wins should be 6");
+    Assert(totalLosses == 6, "Total losses should be 6");
+
+    // The top-ranked player should have the highest win rate
+    var top = summary.Rankings[0];
+    var bottom = summary.Rankings[^1];
+    Assert(top.WinRate >= bottom.WinRate, "Top player should have >= win rate than bottom player");
+
+    // Rankings should be sorted by win rate descending
+    for (var i = 1; i < summary.Rankings.Count; i++)
+    {
+        Assert(summary.Rankings[i - 1].WinRate >= summary.Rankings[i].WinRate,
+            "Rankings should be sorted by win rate descending");
+    }
+
+    // Win rate should be calculated correctly
+    foreach (var r in summary.Rankings)
+    {
+        var expected = r.GamesPlayed > 0 ? (double)r.Wins / r.GamesPlayed : 0;
+        Assert(Math.Abs(r.WinRate - expected) < 0.001, $"Win rate for {r.PlayerName} should be {expected:P1}");
+    }
+    await Task.CompletedTask;
+}
+
+// ---------------------------------------------------------------------
+// Scenario 27: Summary - awards
+// ---------------------------------------------------------------------
+
+static async Task Scenario27()
+{
+    var svc = NewService();
+    svc.ChangeCourts(1);
+    svc.ChangeMode(GameMode.Doubles);
+    AddPlayers(svc, 4);
+
+    svc.StartSession();
+    // With 4 players on 1 court, all games are P1/P2 vs P3/P4
+    // P1/P2 win, P3/P4 lose
+    svc.RecordResult(1, true);
+    // P1/P2 win, P3/P4 lose
+    svc.RecordResult(1, true);
+    // P1/P2 win, P3/P4 lose
+    svc.RecordResult(1, true);
+
+    var summaryService = new SummaryService(svc);
+    var summary = summaryService.BuildSummary();
+
+    // Champion should be P1 (first in deterministic ordering among tied P1/P2)
+    var champion = summary.Awards.FirstOrDefault(a => a.Title == "Champion");
+    Assert(champion != null, "Champion award should exist");
+    Assert(champion!.PlayerName == "P1", "Champion should be P1");
+
+    // Runner-Up should be P2 (second in deterministic ordering among tied P1/P2)
+    var runnerUp = summary.Awards.FirstOrDefault(a => a.Title == "Runner-Up");
+    Assert(runnerUp != null, "Runner-Up award should exist");
+    Assert(runnerUp!.PlayerName == "P2", "Runner-Up should be P2");
+
+    // Third Place should be P3 (first in deterministic ordering among tied P3/P4)
+    var third = summary.Awards.FirstOrDefault(a => a.Title == "Third Place");
+    Assert(third != null, "Third Place award should exist");
+    Assert(third!.PlayerName == "P3", "Third Place should be P3");
+
+    // No duplicate awards
+    var playerNames = summary.Awards.Select(a => a.PlayerName).ToList();
+    Assert(playerNames.Distinct().Count() == playerNames.Count, "No duplicate award recipients");
+    await Task.CompletedTask;
+}
+
+// ---------------------------------------------------------------------
+// Scenario 28: Summary - ties and deterministic ordering
+// ---------------------------------------------------------------------
+
+static async Task Scenario28()
+{
+    var svc = NewService();
+    svc.ChangeCourts(1);
+    svc.ChangeMode(GameMode.Doubles);
+    AddPlayers(svc, 4);
+
+    svc.StartSession();
+    // All players play 1 game: P1/P2 win, P3/P4 lose
+    svc.RecordResult(1, true);
+
+    var summaryService = new SummaryService(svc);
+    var summary = summaryService.BuildSummary();
+
+    // P1 and P2 both have 1 win, 0 losses, 100% win rate
+    // P3 and P4 both have 0 wins, 1 loss, 0% win rate
+    var p1 = summary.Rankings.First(r => r.PlayerName == "P1");
+    var p2 = summary.Rankings.First(r => r.PlayerName == "P2");
+    var p3 = summary.Rankings.First(r => r.PlayerName == "P3");
+    var p4 = summary.Rankings.First(r => r.PlayerName == "P4");
+
+    // P1 and P2 should have same rank (tie)
+    Assert(p1.Rank == p2.Rank, "P1 and P2 should have the same rank (tie)");
+    Assert(p1.Rank == 1, "P1 and P2 should be rank 1");
+
+    // P3 and P4 should have same rank (tie)
+    Assert(p3.Rank == p4.Rank, "P3 and P4 should have the same rank (tie)");
+    Assert(p3.Rank == 3, "P3 and P4 should be rank 3");
+
+    // Deterministic ordering: P1 before P2, P3 before P4 (alphabetical tie-breaker)
+    var p1Index = summary.Rankings.IndexOf(p1);
+    var p2Index = summary.Rankings.IndexOf(p2);
+    var p3Index = summary.Rankings.IndexOf(p3);
+    var p4Index = summary.Rankings.IndexOf(p4);
+    Assert(p1Index < p2Index, "P1 should come before P2 in deterministic ordering");
+    Assert(p3Index < p4Index, "P3 should come before P4 in deterministic ordering");
     await Task.CompletedTask;
 }
 

@@ -13,5 +13,6 @@ builder.Services.AddScoped<PlayerService>();
 builder.Services.AddScoped<CourtService>();
 builder.Services.AddScoped<QueueService>();
 builder.Services.AddScoped<SessionService>();
+builder.Services.AddScoped<SummaryService>();
 
 await builder.Build().RunAsync();
