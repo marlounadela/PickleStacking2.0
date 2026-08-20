@@ -7,10 +7,18 @@ public sealed class SessionState
     public bool IsPaused { get; set; }
     public GameMode Mode { get; set; } = GameMode.Doubles;
     public int GameCounter { get; set; }
+    public bool FirstRoundCompleted { get; set; }
+    public MatchCategory NextMatchCategory { get; set; } = MatchCategory.WinWin;
 }
 
 public enum GameMode
 {
     Singles,
     Doubles
+}
+
+public enum MatchCategory
+{
+    WinWin,
+    LossLoss
 }

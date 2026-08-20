@@ -31,7 +31,14 @@ var tests = new List<(string Name, Func<Task> Run)>
     ("Scenario 25: Summary - no games shows empty state", Scenario25),
     ("Scenario 26: Summary - ranking calculation", Scenario26),
     ("Scenario 27: Summary - awards", Scenario27),
-    ("Scenario 28: Summary - ties and deterministic ordering", Scenario28)
+    ("Scenario 28: Summary - ties and deterministic ordering", Scenario28),
+    ("Scenario 29: First round uses FIFO only", Scenario29),
+    ("Scenario 30: Court availability alternation - WIN/WIN then LOSS/LOSS", Scenario30),
+    ("Scenario 31: Court number does NOT determine match type", Scenario31),
+    ("Scenario 32: Fairness simulation - 16 players / 4 courts / 20 rounds", Scenario32),
+    ("Scenario 33: GamesPlayed fairness is highest priority", Scenario33),
+    ("Scenario 34: Dynamic court availability - first available gets next match", Scenario34),
+    ("Scenario 35: Insufficient players fallback - no crash", Scenario35)
 };
 
 var passed = 0;
@@ -984,6 +991,228 @@ static async Task Scenario28()
     var p4Index = summary.Rankings.IndexOf(p4);
     Assert(p1Index < p2Index, "P1 should come before P2 in deterministic ordering");
     Assert(p3Index < p4Index, "P3 should come before P4 in deterministic ordering");
+    await Task.CompletedTask;
+}
+
+// ---------------------------------------------------------------------
+// Scenario 29: First round uses FIFO only
+// ---------------------------------------------------------------------
+
+static async Task Scenario29()
+{
+    var svc = NewService();
+    svc.ChangeCourts(2);
+    svc.ChangeMode(GameMode.Doubles);
+    AddPlayers(svc, 8);
+
+    svc.StartSession();
+    // First round must use FIFO/entry order
+    AssertCourtPlayers(svc, 1, "P1", "P2", "P3", "P4");
+    AssertCourtPlayers(svc, 2, "P5", "P6", "P7", "P8");
+
+    // FirstRoundCompleted should be false initially
+    Assert(!svc.Session.FirstRoundCompleted, "FirstRoundCompleted should be false initially");
+
+    // Finish both courts
+    svc.RecordResult(1, true);
+    svc.RecordResult(2, true);
+
+    // All players have played, FirstRoundCompleted should be true
+    Assert(svc.Session.FirstRoundCompleted, "FirstRoundCompleted should be true after all players played");
+    await Task.CompletedTask;
+}
+
+// ---------------------------------------------------------------------
+// Scenario 30: Court availability alternation - WIN/WIN then LOSS/LOSS
+// ---------------------------------------------------------------------
+
+static async Task Scenario30()
+{
+    var svc = NewService();
+    svc.ChangeCourts(2);
+    svc.ChangeMode(GameMode.Doubles);
+    AddPlayers(svc, 8);
+
+    svc.StartSession();
+    // Finish both courts simultaneously (pause to prevent re-fill)
+    svc.PauseSession();
+    svc.RecordResult(1, true); // P1,P2 win, P3,P4 lose
+    svc.RecordResult(2, true); // P5,P6 win, P7,P8 lose
+
+    // Capture result groups BEFORE resume
+    var winners = svc.Players.Where(p => p.Status == PlayerStatus.Win).Select(p => p.Name).OrderBy(n => n).ToArray();
+    var losers = svc.Players.Where(p => p.Status == PlayerStatus.Loss).Select(p => p.Name).OrderBy(n => n).ToArray();
+
+    // Resume → assigns courts. Court 1 should get WIN/WIN, Court 2 should get LOSS/LOSS
+    svc.PauseSession();
+
+    var court1Players = CourtPlayerNames(svc, 1);
+    var court2Players = CourtPlayerNames(svc, 2);
+
+    // Court 1 (first available) should be WIN/WIN
+    Assert(court1Players.All(n => winners.Contains(n)), "Court 1 should be WIN/WIN (first available)");
+    // Court 2 (second available) should be LOSS/LOSS
+    Assert(court2Players.All(n => losers.Contains(n)), "Court 2 should be LOSS/LOSS (second available)");
+    await Task.CompletedTask;
+}
+
+// ---------------------------------------------------------------------
+// Scenario 31: Court number does NOT determine match type
+// ---------------------------------------------------------------------
+
+static async Task Scenario31()
+{
+    var svc = NewService();
+    svc.ChangeCourts(4);
+    svc.ChangeMode(GameMode.Doubles);
+    AddPlayers(svc, 16);
+
+    svc.StartSession();
+    // Finish all 4 courts simultaneously
+    svc.PauseSession();
+    for (var i = 1; i <= 4; i++)
+        svc.RecordResult(i, i % 2 == 0);
+
+    // Capture result groups
+    var winners = svc.Players.Where(p => p.Status == PlayerStatus.Win).Select(p => p.Name).ToHashSet();
+    var losers = svc.Players.Where(p => p.Status == PlayerStatus.Loss).Select(p => p.Name).ToHashSet();
+
+    // Resume → assigns courts in availability order (court 1, 2, 3, 4 since they finished in order)
+    svc.PauseSession();
+
+    // Court 1 = WIN/WIN, Court 2 = LOSS/LOSS, Court 3 = WIN/WIN, Court 4 = LOSS/LOSS
+    var c1 = CourtPlayerNames(svc, 1);
+    var c2 = CourtPlayerNames(svc, 2);
+    var c3 = CourtPlayerNames(svc, 3);
+    var c4 = CourtPlayerNames(svc, 4);
+
+    Assert(c1.All(n => winners.Contains(n)), "Court 1 should be WIN/WIN");
+    Assert(c2.All(n => losers.Contains(n)), "Court 2 should be LOSS/LOSS");
+    Assert(c3.All(n => winners.Contains(n)), "Court 3 should be WIN/WIN");
+    Assert(c4.All(n => losers.Contains(n)), "Court 4 should be LOSS/LOSS");
+    await Task.CompletedTask;
+}
+
+// ---------------------------------------------------------------------
+// Scenario 32: Fairness simulation - 16 players / 4 courts / 20 rounds
+// ---------------------------------------------------------------------
+
+static async Task Scenario32()
+{
+    var svc = NewService();
+    svc.ChangeCourts(4);
+    svc.ChangeMode(GameMode.Doubles);
+    AddPlayers(svc, 16);
+
+    svc.StartSession();
+
+    // Simulate 20 rounds of games
+    for (var round = 0; round < 20; round++)
+    {
+        // Finish all active courts
+        var activeCourts = svc.Courts.Where(c => c.IsActive).Select(c => c.Number).ToList();
+        foreach (var courtNum in activeCourts)
+        {
+            svc.RecordResult(courtNum, courtNum % 2 == 0);
+        }
+    }
+
+    // Check game count fairness
+    var games = svc.Players.Select(p => p.GamesPlayed).ToArray();
+    var max = games.Max();
+    var min = games.Min();
+    var diff = max - min;
+
+    // The difference should remain small (practically as small as possible)
+    Assert(diff <= 2, $"Game count difference should be <= 2, got max={max}, min={min}, diff={diff}, values=[{string.Join(",", games)}]");
+
+    // No player should have 0 games
+    Assert(svc.Players.All(p => p.GamesPlayed > 0), "All players should have played at least once");
+
+    // No duplicate players across courts
+    var allPlaying = svc.Courts
+        .Where(c => c.IsActive)
+        .SelectMany(c => c.TeamA!.Players.Concat(c.TeamB!.Players))
+        .Select(p => p.Id)
+        .ToList();
+    Assert(allPlaying.Distinct().Count() == allPlaying.Count, "No duplicate players across courts");
+    await Task.CompletedTask;
+}
+
+// ---------------------------------------------------------------------
+// Scenario 33: GamesPlayed fairness is highest priority
+// ---------------------------------------------------------------------
+
+static async Task Scenario33()
+{
+    var svc = NewService();
+    svc.ChangeCourts(1);
+    svc.ChangeMode(GameMode.Doubles);
+    AddPlayers(svc, 8);
+
+    svc.StartSession();
+    // Play several rounds so some players have more games
+    for (var i = 0; i < 4; i++)
+        svc.RecordResult(1, true);
+
+    // Add a late player with 0 games
+    svc.AddPlayer("LatePlayer");
+
+    // Finish current game
+    svc.RecordResult(1, true);
+
+    // The late player (0 games) must be in the next game
+    var court1 = svc.Courts.First(c => c.Number == 1);
+    var names = court1.TeamA!.Players.Concat(court1.TeamB!.Players).Select(p => p.Name).ToArray();
+    Assert(names.Contains("LatePlayer"), "Late player with 0 games should be prioritized over players with more games");
+    await Task.CompletedTask;
+}
+
+// ---------------------------------------------------------------------
+// Scenario 34: Dynamic court availability - first available gets next match
+// ---------------------------------------------------------------------
+
+static async Task Scenario34()
+{
+    var svc = NewService();
+    svc.ChangeCourts(2);
+    svc.ChangeMode(GameMode.Doubles);
+    AddPlayers(svc, 8);
+
+    svc.StartSession();
+    // Court 1 finishes first
+    svc.RecordResult(1, true);
+    // Court 1 should re-fill immediately (first available gets next match)
+    Assert(svc.Courts.First(c => c.Number == 1).IsActive, "Court 1 should be re-filled immediately");
+
+    // Court 2 finishes later
+    svc.RecordResult(2, true);
+    Assert(svc.Courts.First(c => c.Number == 2).IsActive, "Court 2 should be re-filled");
+    await Task.CompletedTask;
+}
+
+// ---------------------------------------------------------------------
+// Scenario 35: Insufficient players fallback - no crash
+// ---------------------------------------------------------------------
+
+static async Task Scenario35()
+{
+    var svc = NewService();
+    svc.ChangeCourts(1);
+    svc.ChangeMode(GameMode.Doubles);
+    AddPlayers(svc, 4);
+
+    svc.StartSession();
+    // Play several rounds
+    for (var i = 0; i < 5; i++)
+        svc.RecordResult(1, true);
+
+    // With only 4 players, the algorithm must handle insufficient WIN/LOSS pools gracefully
+    // No crash, no invalid match
+    Assert(svc.Courts.First(c => c.Number == 1).IsActive, "Court should be active");
+    var court1 = svc.Courts.First(c => c.Number == 1);
+    var players = court1.TeamA!.Players.Concat(court1.TeamB!.Players).Select(p => p.Id).ToList();
+    Assert(players.Distinct().Count() == 4, "All 4 players should be unique");
     await Task.CompletedTask;
 }
 

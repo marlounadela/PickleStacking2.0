@@ -27,7 +27,7 @@ public sealed class StackingService
     public IReadOnlyList<Game> History => history.OrderByDescending(g => g.Number).ToArray();
     public SessionState Session => session;
 
-    // GLOBAL FIFO NEXT TO PLAY queue - fixed order once teams are selected
+    // GLOBAL NEXT TO PLAY queue - reflects actual algorithm selections
     private readonly List<NextUpPreview> nextToPlayQueue = new();
 
     // Waiting queue: players who are waiting (Waiting or Next status, not Playing)
@@ -69,6 +69,8 @@ public sealed class StackingService
                     session.IsPaused = state.Session?.IsPaused ?? false;
                     session.Mode = state.Session?.Mode ?? GameMode.Doubles;
                     session.GameCounter = state.Session?.GameCounter ?? 0;
+                    session.FirstRoundCompleted = state.Session?.FirstRoundCompleted ?? false;
+                    session.NextMatchCategory = state.Session?.NextMatchCategory ?? MatchCategory.WinWin;
 
                     nextEntryOrder = state.NextEntryOrder > 0 ? state.NextEntryOrder : 1;
                     history.Clear();
@@ -145,7 +147,40 @@ public sealed class StackingService
             Status = PlayerStatus.Waiting
         };
         players.Add(player);
+
+        // If a session is active, rebuild the queue so the new player
+        // (with 0 games) gets priority per the fairness algorithm.
+        if (session.IsActive && !session.IsPaused)
+        {
+            RebuildQueueForNewPlayer();
+        }
+
         Persist();
+    }
+
+    /// <summary>
+    /// Rebuild the NEXT TO PLAY queue when a new player is added mid-session,
+    /// ensuring the new player (0 games) gets priority per the fairness algorithm.
+    /// </summary>
+    private void RebuildQueueForNewPlayer()
+    {
+        // Only rebuild if there are queued players
+        if (nextToPlayQueue.Count == 0)
+            return;
+
+        // Reset queued players back to Waiting
+        foreach (var preview in nextToPlayQueue)
+        {
+            foreach (var p in preview.TeamA.Concat(preview.TeamB))
+            {
+                if (p.Status == PlayerStatus.Next)
+                    p.Status = PlayerStatus.Waiting;
+            }
+        }
+
+        // Clear and rebuild the queue
+        nextToPlayQueue.Clear();
+        BuildNextToPlayQueue();
     }
 
     public void RemovePlayer(string playerId)
@@ -216,6 +251,8 @@ public sealed class StackingService
 
         session.IsActive = true;
         session.IsPaused = false;
+        session.FirstRoundCompleted = false;
+        session.NextMatchCategory = MatchCategory.WinWin;
         ResetPlayerStatuses();
         AssignInitialGames();
         Persist();
@@ -236,6 +273,8 @@ public sealed class StackingService
         session.IsActive = false;
         session.IsPaused = false;
         session.GameCounter = 0;
+        session.FirstRoundCompleted = false;
+        session.NextMatchCategory = MatchCategory.WinWin;
         history.Clear();
 
         foreach (var court in courts)
@@ -243,6 +282,7 @@ public sealed class StackingService
             court.TeamA = null;
             court.TeamB = null;
             court.StartedAt = default;
+            court.BecameAvailableAt = DateTime.MinValue;
         }
 
         foreach (var player in players)
@@ -315,9 +355,17 @@ public sealed class StackingService
             Mode = session.Mode == GameMode.Singles ? "Singles" : "Doubles"
         });
 
+        // Mark court as available with timestamp for dynamic ordering
         court.TeamA = null;
         court.TeamB = null;
         court.StartedAt = default;
+        court.BecameAvailableAt = DateTime.UtcNow;
+
+        // Check if first round is now complete
+        if (!session.FirstRoundCompleted && AllPlayersHavePlayed)
+        {
+            session.FirstRoundCompleted = true;
+        }
 
         // After game finishes, assign next players
         AssignNextPlayers();
@@ -354,6 +402,7 @@ public sealed class StackingService
 
     private void AssignInitialGames()
     {
+        // FIRST ROUND: FIFO ONLY - use player entry/order sequence
         var ordered = players.OrderBy(p => p.EntryOrder).ToList();
         var needed = session.Mode == GameMode.Singles ? 2 : 4;
         var index = 0;
@@ -381,87 +430,81 @@ public sealed class StackingService
         var needed = session.Mode == GameMode.Singles ? 2 : 4;
         var maxQueuedMatchups = session.CourtsCount;
 
-        // During first round (not all players have played), prioritize unplayed players,
-        // but allow played players (Win/Loss) as fallback when needed
-        if (!AllPlayersHavePlayed)
+        // Get eligible players (not playing, not already in queue)
+        var eligible = players
+            .Where(p => p.Status != PlayerStatus.Playing)
+            .ToList();
+
+        var remaining = eligible.ToList();
+        while (remaining.Count >= needed && nextToPlayQueue.Count < maxQueuedMatchups)
         {
-            var eligible = players
-                .Where(p => p.Status != PlayerStatus.Playing)
-                .OrderBy(p => p.GamesPlayed) // 0 games (unplayed) first
-                .ThenBy(p => p.EntryOrder)   // FIFO within same game count
-                .ToList();
+            List<Player>? selected = null;
 
-            // Select teams in FIFO order - only build as many as court count
-            var remaining = eligible.ToList();
-            while (remaining.Count >= needed && nextToPlayQueue.Count < maxQueuedMatchups)
+            if (!session.FirstRoundCompleted)
             {
-                var selected = remaining.Take(needed).ToList();
-                var half = needed / 2;
-                List<Player> teamA;
-                List<Player> teamB;
+                // FIRST ROUND: FIFO ONLY - use entry order, prioritize unplayed players
+                selected = remaining
+                    .OrderBy(p => p.GamesPlayed) // 0 games (unplayed) first
+                    .ThenBy(p => p.EntryOrder)   // FIFO within same game count
+                    .Take(needed)
+                    .ToList();
+            }
+            else
+            {
+                // AFTER FIRST ROUND: Use fairness + standing-based algorithm
+                // Determine the required match category for this queue slot
+                var category = GetNextMatchCategoryForQueueSlot(nextToPlayQueue.Count);
+                selected = SelectPlayersForMatch(remaining, needed, category);
+            }
 
-                if (needed == 4)
-                {
-                    // Apply partner/opponent rotation to avoid same teams in consecutive rounds
-                    var bestSplit = FindBestDoublesSplit(selected);
-                    teamA = bestSplit.Item1;
-                    teamB = bestSplit.Item2;
-                }
-                else
-                {
-                    teamA = selected.Take(half).ToList();
-                    teamB = selected.Skip(half).Take(half).ToList();
-                }
+            if (selected == null || selected.Count != needed)
+                break;
 
-                nextToPlayQueue.Add(new NextUpPreview
-                {
-                    CourtNumber = nextToPlayQueue.Count + 1,
-                    TeamA = teamA,
-                    TeamB = teamB,
-                    GroupLabel = "FIFO"
-                });
+            var half = needed / 2;
+            List<Player> teamA;
+            List<Player> teamB;
 
-                // Mark players as Next (queued)
-                foreach (var p in selected)
-                {
-                    p.Status = PlayerStatus.Next;
-                    remaining.Remove(p);
-                }
+            if (needed == 4)
+            {
+                // Apply partner/opponent rotation to form teams
+                var bestSplit = FindBestDoublesSplit(selected);
+                teamA = bestSplit.Item1;
+                teamB = bestSplit.Item2;
+            }
+            else
+            {
+                teamA = selected.Take(half).ToList();
+                teamB = selected.Skip(half).Take(half).ToList();
+            }
+
+            nextToPlayQueue.Add(new NextUpPreview
+            {
+                CourtNumber = nextToPlayQueue.Count + 1,
+                TeamA = teamA,
+                TeamB = teamB,
+                GroupLabel = session.FirstRoundCompleted ? DetermineGroupLabel(selected) : "FIFO"
+            });
+
+            // Mark players as Next (queued)
+            foreach (var p in selected)
+            {
+                p.Status = PlayerStatus.Next;
+                remaining.Remove(p);
             }
         }
-        else
-        {
-            // After everyone has played once, use the existing stacking algorithm
-            var eligible = players
-                .Where(p => p.Status != PlayerStatus.Playing)
-                .OrderBy(p => p.GamesPlayed)
-                .ThenBy(p => p.EntryOrder)
-                .ToList();
+    }
 
-            var remaining = eligible.ToList();
-            while (remaining.Count >= needed && nextToPlayQueue.Count < maxQueuedMatchups)
-            {
-                var selected = SelectPlayersForCourtGlobal(remaining, needed);
-                if (selected == null)
-                    break;
-
-                var half = needed / 2;
-                nextToPlayQueue.Add(new NextUpPreview
-                {
-                    CourtNumber = nextToPlayQueue.Count + 1,
-                    TeamA = selected.Take(half).ToList(),
-                    TeamB = selected.Skip(half).Take(half).ToList(),
-                    GroupLabel = DetermineGroupLabel(selected)
-                });
-
-                // Mark players as Next (queued)
-                foreach (var p in selected)
-                {
-                    p.Status = PlayerStatus.Next;
-                    remaining.Remove(p);
-                }
-            }
-        }
+    /// <summary>
+    /// Determine the match category for a queue slot based on the current NextMatchCategory
+    /// and how many queue slots have been built so far.
+    /// </summary>
+    private MatchCategory GetNextMatchCategoryForQueueSlot(int queueSlotIndex)
+    {
+        // The queue alternates starting from the current NextMatchCategory
+        var current = session.NextMatchCategory;
+        if (queueSlotIndex % 2 == 0)
+            return current;
+        return current == MatchCategory.WinWin ? MatchCategory.LossLoss : MatchCategory.WinWin;
     }
 
     private string DetermineGroupLabel(List<Player> selected)
@@ -470,7 +513,7 @@ public sealed class StackingService
         // This is based on the majority status of the players
         var winCount = selected.Count(p => p.Status == PlayerStatus.Win);
         var lossCount = selected.Count(p => p.Status == PlayerStatus.Loss);
-        
+
         if (winCount >= lossCount)
             return "WIN";
         return "LOSS";
@@ -481,7 +524,13 @@ public sealed class StackingService
         if (!session.IsActive || session.IsPaused)
             return;
 
-        var openCourts = courts.Where(c => !c.IsActive).OrderBy(c => c.Number).ToList();
+        // Get open courts sorted by availability order (BecameAvailableAt ascending, then court number as tiebreaker)
+        var openCourts = courts
+            .Where(c => !c.IsActive)
+            .OrderBy(c => c.BecameAvailableAt)
+            .ThenBy(c => c.Number)
+            .ToList();
+
         if (openCourts.Count == 0)
             return;
 
@@ -521,6 +570,9 @@ public sealed class StackingService
 
             AssignCourt(openCourts[courtIndex], teamAPlayers, teamBPlayers);
 
+            // Toggle NextMatchCategory after assigning a match to a court
+            ToggleNextMatchCategory();
+
             // Remove this team from the front of the queue
             nextToPlayQueue.RemoveAt(0);
 
@@ -541,9 +593,9 @@ public sealed class StackingService
             {
                 List<Player>? newSelected = null;
 
-                // During first round, use FIFO for unplayed players first
-                if (!AllPlayersHavePlayed)
+                if (!session.FirstRoundCompleted)
                 {
+                    // FIRST ROUND: FIFO ONLY
                     newSelected = remainingEligible
                         .OrderBy(p => p.GamesPlayed) // 0 games (unplayed) first
                         .ThenBy(p => p.EntryOrder)
@@ -552,8 +604,10 @@ public sealed class StackingService
                 }
                 else
                 {
-                    // After first round, use existing stacking algorithm
-                    newSelected = SelectPlayersForCourtGlobal(remainingEligible, neededPerCourt);
+                    // After first round: use fairness + standing algorithm
+                    // Determine the next match category based on the current NextMatchCategory
+                    var category = session.NextMatchCategory;
+                    newSelected = SelectPlayersForMatch(remainingEligible, neededPerCourt, category);
                 }
 
                 if (newSelected != null && newSelected.Count == neededPerCourt)
@@ -580,7 +634,7 @@ public sealed class StackingService
                         CourtNumber = nextToPlayQueue.Count + 1,
                         TeamA = newTeamA,
                         TeamB = newTeamB,
-                        GroupLabel = AllPlayersHavePlayed ? DetermineGroupLabel(newSelected) : "FIFO"
+                        GroupLabel = session.FirstRoundCompleted ? DetermineGroupLabel(newSelected) : "FIFO"
                     });
 
                     // Mark newly queued players as Next
@@ -599,114 +653,58 @@ public sealed class StackingService
     }
 
     // ------------------------------------------------------------------
-    // Core selection algorithm - GLOBAL approach
+    // Core selection algorithm - FAIR STANDING + DYNAMIC COURT MATCHING
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Select players for a single court from the eligible pool, prioritizing:
-    /// 1. Fewest GamesPlayed
-    /// 2. WIN vs WIN or LOSS vs LOSS compatibility
-    /// 3. Longest waiting time
-    /// 4. Partner rotation
-    /// 5. Avoid repeated opponents
-    /// 6. FIFO when otherwise equal
+    /// Select players for a single court from the eligible pool, using the
+    /// 8-priority hierarchy:
+    /// P1: Fewest GamesPlayed
+    /// P2: Correct WIN/WIN or LOSS/LOSS category
+    /// P3: Similar current standing
+    /// P4: Similar Win Rate
+    /// P5: Avoid repeated partners
+    /// P6: Avoid repeated opponents
+    /// P7: Waiting time
+    /// P8: FIFO/order as final tie-breaker
     /// </summary>
-    private List<Player>? SelectPlayersForCourtGlobal(List<Player> eligible, int needed)
+    private List<Player>? SelectPlayersForMatch(List<Player> eligible, int needed, MatchCategory category)
     {
         if (eligible.Count < needed)
             return null;
 
-        // Phase 1: Sort by GamesPlayed ascending (dominant factor), then wait time descending
+        // P1: Sort by GamesPlayed ascending (dominant factor)
         var sorted = eligible
             .OrderBy(p => p.GamesPlayed)
-            .ThenByDescending(p => WaitMinutes(p))
+            .ThenBy(p => p.EntryOrder)
             .ToList();
 
-        // Phase 2: Try to form same-result groups (WIN vs WIN or LOSS vs LOSS)
-        var result = SelectResultBasedGlobal(sorted, needed);
-        if (result != null)
-            return result;
-
-        // Phase 3: Fall back to lowest GamesPlayed overall (mixed is last resort)
-        return PickBestCombination(sorted.Take(MaxCombinationPool).ToList(), needed);
-    }
-
-    /// <summary>
-    /// Select players for ALL courts at once, ensuring global fairness.
-    /// </summary>
-    private List<Player>? SelectPlayersForAllCourts(List<Player> eligible, int numCourts, int neededPerCourt)
-    {
-        var totalNeeded = numCourts * neededPerCourt;
-        if (eligible.Count < totalNeeded)
-            return null;
-
-        // Sort all eligible players by GamesPlayed ascending, then wait time descending
-        var sorted = eligible
-            .OrderBy(p => p.GamesPlayed)
-            .ThenByDescending(p => WaitMinutes(p))
-            .ToList();
-
-        // We need to select totalNeeded players
-        // First, try to form same-result groups at each game-count threshold
-        var result = SelectResultBasedGlobal(sorted, totalNeeded);
-        if (result != null && result.Count == totalNeeded)
-            return result;
-
-        // Fall back: just take the totalNeeded players with fewest games
-        // But still try to maintain WIN/LOSS grouping where possible
-        var fallback = sorted.Take(totalNeeded).ToList();
-        return fallback;
-    }
-
-    /// <summary>
-    /// Select a group of players prioritizing same-result (WIN/WIN or LOSS/LOSS) matchups.
-    /// </summary>
-    private List<Player>? SelectResultBasedGlobal(List<Player> pool, int count)
-    {
-        // STEP 1: Sort by GamesPlayed ascending (dominant), then wait time descending
-        var sorted = pool
-            .OrderBy(p => p.GamesPlayed)
-            .ThenByDescending(p => WaitMinutes(p))
-            .ToList();
-
-        // STEP 2: Expand the pool gradually from the lowest game count
+        // Expand the pool gradually from the lowest game count.
+        // The scoring function handles the full 8-priority hierarchy:
+        // P1: GamesPlayed (1000 per game) - DOMINANT
+        // P2: Category match (500 per wrong status)
+        // P3-P8: Standing, Win Rate, Partner/Opponent rotation, Waiting, FIFO
         var gameCounts = sorted.Select(p => p.GamesPlayed).Distinct().OrderBy(g => g).ToList();
 
         foreach (var threshold in gameCounts)
         {
             var thresholdPool = sorted.Where(p => p.GamesPlayed <= threshold).ToList();
-            if (thresholdPool.Count < count)
+            if (thresholdPool.Count < needed)
                 continue;
 
-            // Try WIN group first.
-            var winGroup = thresholdPool.Where(p => p.Status == PlayerStatus.Win).ToList();
-            if (winGroup.Count >= count)
-            {
-                var selected = PickBestCombination(winGroup, count);
-                if (selected != null && selected.Count == count)
-                    return selected;
-            }
-
-            // Try LOSS group.
-            var lossGroup = thresholdPool.Where(p => p.Status == PlayerStatus.Loss).ToList();
-            if (lossGroup.Count >= count)
-            {
-                var selected = PickBestCombination(lossGroup, count);
-                if (selected != null && selected.Count == count)
-                    return selected;
-            }
+            var selected = PickBestCombination(thresholdPool, needed, category);
+            if (selected != null && selected.Count == needed)
+                return selected;
         }
 
-        // No same-result group found within reasonable game-count bounds.
-        // Fall back to the lowest-game players overall (mixed is a last resort).
-        return PickBestCombination(sorted, count);
+        // Last resort: pick the lowest-game players overall
+        return PickBestCombination(sorted, needed, category);
     }
 
     /// <summary>
-    /// Pick the best combination of players based on fairness score (GamesPlayed dominant), 
-    /// with WIN/LOSS grouping preference.
+    /// Pick the best combination of players based on the 8-priority hierarchy.
     /// </summary>
-    private List<Player>? PickBestCombination(List<Player> candidates, int count)
+    private List<Player>? PickBestCombination(List<Player> candidates, int count, MatchCategory category)
     {
         if (candidates.Count < count)
             return null;
@@ -714,43 +712,52 @@ public sealed class StackingService
         // Bound the pool for performance while preserving fairness.
         var pool = candidates
             .OrderBy(p => p.GamesPlayed)
-            .ThenByDescending(p => WaitMinutes(p))
+            .ThenBy(p => p.EntryOrder)
             .Take(MaxCombinationPool)
             .ToList();
 
         if (pool.Count < count)
             pool = candidates;
 
-        // Try to find a same-result group first
-        var result = TryFindSameResultGroup(pool, count);
-        if (result != null)
-            return result;
-
-        // Last resort: just return the best scoring combination
-        return count == 2 ? PickBestSingles(pool) : PickBestDoubles(pool);
+        // Use the scoring function which implements the full 8-priority hierarchy.
+        // The scoring function naturally prefers same-category players (P2) via the
+        // 500-point penalty, but GamesPlayed (P1, 1000 per game) always dominates.
+        return count == 2 ? PickBestSingles(pool, category) : PickBestDoubles(pool, category);
     }
 
     /// <summary>
     /// Try to find a same-result (WIN/WIN or LOSS/LOSS) group from the candidates.
     /// </summary>
-    private List<Player>? TryFindSameResultGroup(List<Player> candidates, int count)
+    private List<Player>? TryFindSameResultGroup(List<Player> candidates, int count, MatchCategory category)
     {
         // Separate by WIN/LOSS status
         var winCandidates = candidates.Where(p => p.Status == PlayerStatus.Win).ToList();
         var lossCandidates = candidates.Where(p => p.Status == PlayerStatus.Loss).ToList();
 
-        // Try WIN group
-        if (winCandidates.Count >= count)
+        // Try the required category first
+        if (category == MatchCategory.WinWin && winCandidates.Count >= count)
         {
-            var selected = count == 2 ? PickBestSingles(winCandidates) : PickBestDoubles(winCandidates);
+            var selected = count == 2 ? PickBestSingles(winCandidates, category) : PickBestDoubles(winCandidates, category);
+            if (selected != null && selected.Count == count)
+                return selected;
+        }
+        else if (category == MatchCategory.LossLoss && lossCandidates.Count >= count)
+        {
+            var selected = count == 2 ? PickBestSingles(lossCandidates, category) : PickBestDoubles(lossCandidates, category);
             if (selected != null && selected.Count == count)
                 return selected;
         }
 
-        // Try LOSS group
-        if (lossCandidates.Count >= count)
+        // Try the other category as fallback
+        if (category == MatchCategory.WinWin && lossCandidates.Count >= count)
         {
-            var selected = count == 2 ? PickBestSingles(lossCandidates) : PickBestDoubles(lossCandidates);
+            var selected = count == 2 ? PickBestSingles(lossCandidates, category) : PickBestDoubles(lossCandidates, category);
+            if (selected != null && selected.Count == count)
+                return selected;
+        }
+        else if (category == MatchCategory.LossLoss && winCandidates.Count >= count)
+        {
+            var selected = count == 2 ? PickBestSingles(winCandidates, category) : PickBestDoubles(winCandidates, category);
             if (selected != null && selected.Count == count)
                 return selected;
         }
@@ -758,14 +765,14 @@ public sealed class StackingService
         return null;
     }
 
-    private List<Player> PickBestSingles(List<Player> candidates)
+    private List<Player> PickBestSingles(List<Player> candidates, MatchCategory category)
     {
         List<Player>? best = null;
         var bestScore = double.MaxValue;
 
         foreach (var combo in Combinations(candidates, 2))
         {
-            var score = ScoreSingles(combo);
+            var score = ScoreSingles(combo, category);
             if (score < bestScore)
             {
                 bestScore = score;
@@ -776,7 +783,7 @@ public sealed class StackingService
         return best ?? candidates.Take(2).ToList();
     }
 
-    private List<Player> PickBestDoubles(List<Player> candidates)
+    private List<Player> PickBestDoubles(List<Player> candidates, MatchCategory category)
     {
         List<Player>? best = null;
         var bestScore = double.MaxValue;
@@ -793,7 +800,7 @@ public sealed class StackingService
 
             foreach (var split in splits)
             {
-                var score = ScoreDoubles(split[0], split[1]);
+                var score = ScoreDoubles(split[0], split[1], category);
                 if (score < bestScore)
                 {
                     bestScore = score;
@@ -833,7 +840,7 @@ public sealed class StackingService
 
         foreach (var split in splits)
         {
-            var score = ScoreDoubles(split[0], split[1]);
+            var score = ScoreDoubles(split[0], split[1], session.NextMatchCategory);
             if (score < bestScore)
             {
                 bestScore = score;
@@ -844,33 +851,82 @@ public sealed class StackingService
         return best ?? (new List<Player> { a, b }, new List<Player> { c, d });
     }
 
-    private double ScoreSingles(IReadOnlyList<Player> combo)
+    private double ScoreSingles(IReadOnlyList<Player> combo, MatchCategory category)
     {
         var score = 0.0;
         var a = combo[0];
         var b = combo[1];
 
-        // Opponent avoidance is a minor tiebreaker, never overrides game-count fairness.
+        // P1: GamesPlayed fairness (DOMINANT - 1000 per game difference)
+        score += (a.GamesPlayed + b.GamesPlayed) * 1000;
+
+        // P2: Category match (WIN/WIN or LOSS/LOSS)
+        var requiredStatus = category == MatchCategory.WinWin ? PlayerStatus.Win : PlayerStatus.Loss;
+        if (a.Status != requiredStatus)
+            score += 500;
+        if (b.Status != requiredStatus)
+            score += 500;
+
+        // P3: Similar standing (smaller difference is better)
+        var standingDiff = Math.Abs(a.Wins - b.Wins) + Math.Abs(a.Losses - b.Losses);
+        score += standingDiff * 50;
+
+        // P4: Similar Win Rate
+        var winRateA = a.GamesPlayed > 0 ? (double)a.Wins / a.GamesPlayed : 0;
+        var winRateB = b.GamesPlayed > 0 ? (double)b.Wins / b.GamesPlayed : 0;
+        score += Math.Abs(winRateA - winRateB) * 100;
+
+        // P6: Opponent rotation (minor tiebreaker)
         if (a.PreviousOpponents.Contains(b.Id))
             score += 10;
         if (b.PreviousOpponents.Contains(a.Id))
             score += 10;
 
-        score += FairnessScore(combo);
+        // P7: Waiting time (longer wait is better)
+        score -= WaitMinutes(a) * 0.1;
+        score -= WaitMinutes(b) * 0.1;
+
+        // P8: FIFO/order as final tie-breaker
+        score += (a.EntryOrder + b.EntryOrder) * 0.001;
+
         return score;
     }
 
-    private double ScoreDoubles(IReadOnlyList<Player> teamA, IReadOnlyList<Player> teamB)
+    private double ScoreDoubles(IReadOnlyList<Player> teamA, IReadOnlyList<Player> teamB, MatchCategory category)
     {
         var score = 0.0;
+        var all = teamA.Concat(teamB).ToList();
 
-        // Partner rotation: avoid recent partners (minor tiebreaker).
+        // P1: GamesPlayed dominance (DOMINANT - 1000 per game)
+        score += all.Sum(p => p.GamesPlayed) * 1000;
+
+        // P2: Correct category (WIN/WIN or LOSS/LOSS)
+        var requiredStatus = category == MatchCategory.WinWin ? PlayerStatus.Win : PlayerStatus.Loss;
+        foreach (var p in all)
+        {
+            if (p.Status != requiredStatus)
+                score += 500;
+        }
+
+        // P3: Similar standing (smaller spread is better)
+        var wins = all.Select(p => p.Wins).ToList();
+        var losses = all.Select(p => p.Losses).ToList();
+        var winSpread = wins.Max() - wins.Min();
+        var lossSpread = losses.Max() - losses.Min();
+        score += (winSpread + lossSpread) * 50;
+
+        // P4: Similar Win Rate
+        var winRates = all.Select(p => p.GamesPlayed > 0 ? (double)p.Wins / p.GamesPlayed : 0).ToList();
+        var winRateSpread = winRates.Max() - winRates.Min();
+        score += winRateSpread * 100;
+
+        // P5: Partner rotation (avoid recent partners - minor tiebreaker)
         if (teamA[0].PreviousPartners.Contains(teamA[1].Id))
             score += 20;
         if (teamB[0].PreviousPartners.Contains(teamB[1].Id))
             score += 20;
 
-        // Opponent rotation: avoid recent opponents (minor tiebreaker).
+        // P6: Opponent rotation (avoid recent opponents - minor tiebreaker)
         foreach (var a in teamA)
         {
             foreach (var b in teamB)
@@ -882,23 +938,15 @@ public sealed class StackingService
             }
         }
 
-        score += FairnessScore(teamA.Concat(teamB));
-        return score;
-    }
-
-    private double FairnessScore(IEnumerable<Player> selected)
-    {
-        var score = 0.0;
-        foreach (var p in selected)
+        // P7: Waiting time (longer wait is better)
+        foreach (var p in all)
         {
-            // GamesPlayed is the DOMINANT factor.
-            // A 1-game difference (1000) can never be outweighed by
-            // partner rotation (20) or opponent avoidance (10).
-            score += p.GamesPlayed * 1000;
-
-            // Longer wait is better (tiebreaker).
-            score -= WaitMinutes(p) * 1.0;
+            score -= WaitMinutes(p) * 0.1;
         }
+
+        // P8: FIFO/order as final tiebreaker
+        score += all.Sum(p => p.EntryOrder) * 0.001;
+
         return score;
     }
 
@@ -918,9 +966,17 @@ public sealed class StackingService
         court.TeamA = new Team { Label = "A", Players = teamA };
         court.TeamB = new Team { Label = "B", Players = teamB };
         court.StartedAt = DateTime.UtcNow;
+        court.BecameAvailableAt = DateTime.MinValue;
 
         foreach (var p in teamA.Concat(teamB))
             p.Status = PlayerStatus.Playing;
+    }
+
+    private void ToggleNextMatchCategory()
+    {
+        session.NextMatchCategory = session.NextMatchCategory == MatchCategory.WinWin
+            ? MatchCategory.LossLoss
+            : MatchCategory.WinWin;
     }
 
     /// <summary>
@@ -998,11 +1054,13 @@ public sealed class StackingService
     private void RebuildCourtsFromPlayers()
     {
         EnsureCourts();
+
         foreach (var court in courts)
         {
             court.TeamA = null;
             court.TeamB = null;
             court.StartedAt = default;
+            court.BecameAvailableAt = DateTime.MinValue;
         }
 
         var playing = players.Where(p => p.Status == PlayerStatus.Playing).OrderBy(p => p.EntryOrder).ToList();
