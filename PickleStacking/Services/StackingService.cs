@@ -452,9 +452,8 @@ public sealed class StackingService
             else
             {
                 // AFTER FIRST ROUND: Use fairness + standing-based algorithm
-                // Determine the required match category for this queue slot
-                var category = GetNextMatchCategoryForQueueSlot(nextToPlayQueue.Count);
-                selected = SelectPlayersForMatch(remaining, needed, category);
+                // The algorithm dynamically determines the fairest same-status match
+                selected = SelectPlayersForMatch(remaining, needed);
             }
 
             if (selected == null || selected.Count != needed)
@@ -492,19 +491,6 @@ public sealed class StackingService
                 remaining.Remove(p);
             }
         }
-    }
-
-    /// <summary>
-    /// Determine the match category for a queue slot based on the current NextMatchCategory
-    /// and how many queue slots have been built so far.
-    /// </summary>
-    private MatchCategory GetNextMatchCategoryForQueueSlot(int queueSlotIndex)
-    {
-        // The queue alternates starting from the current NextMatchCategory
-        var current = session.NextMatchCategory;
-        if (queueSlotIndex % 2 == 0)
-            return current;
-        return current == MatchCategory.WinWin ? MatchCategory.LossLoss : MatchCategory.WinWin;
     }
 
     private string DetermineGroupLabel(List<Player> selected)
@@ -570,9 +556,6 @@ public sealed class StackingService
 
             AssignCourt(openCourts[courtIndex], teamAPlayers, teamBPlayers);
 
-            // Toggle NextMatchCategory after assigning a match to a court
-            ToggleNextMatchCategory();
-
             // Remove this team from the front of the queue
             nextToPlayQueue.RemoveAt(0);
 
@@ -605,9 +588,8 @@ public sealed class StackingService
                 else
                 {
                     // After first round: use fairness + standing algorithm
-                    // Determine the next match category based on the current NextMatchCategory
-                    var category = session.NextMatchCategory;
-                    newSelected = SelectPlayersForMatch(remainingEligible, neededPerCourt, category);
+                    // The algorithm dynamically determines the fairest same-status match
+                    newSelected = SelectPlayersForMatch(remainingEligible, neededPerCourt);
                 }
 
                 if (newSelected != null && newSelected.Count == neededPerCourt)
@@ -660,18 +642,28 @@ public sealed class StackingService
     /// Select players for a single court from the eligible pool, using the
     /// 8-priority hierarchy:
     /// P1: Fewest GamesPlayed
-    /// P2: Correct WIN/WIN or LOSS/LOSS category
+    /// P2: Current WINNER/LOSER status (same-status matchups)
     /// P3: Similar current standing
     /// P4: Similar Win Rate
     /// P5: Avoid repeated partners
     /// P6: Avoid repeated opponents
     /// P7: Waiting time
     /// P8: FIFO/order as final tie-breaker
+    ///
+    /// The algorithm dynamically determines the fairest same-status match:
+    /// - Separates eligible players into WINNER and LOSER pools
+    /// - Prefers same-status (WIN vs WIN or LOSS vs LOSS) matchups
+    /// - Game-count fairness is the dominant factor
+    /// - Court number NEVER determines match type
     /// </summary>
-    private List<Player>? SelectPlayersForMatch(List<Player> eligible, int needed, MatchCategory category)
+    private List<Player>? SelectPlayersForMatch(List<Player> eligible, int needed)
     {
         if (eligible.Count < needed)
             return null;
+
+        // Separate into WINNER and LOSER pools based on current/latest result
+        var winnerPool = eligible.Where(p => p.Status == PlayerStatus.Win).ToList();
+        var loserPool = eligible.Where(p => p.Status == PlayerStatus.Loss).ToList();
 
         // P1: Sort by GamesPlayed ascending (dominant factor)
         var sorted = eligible
@@ -682,29 +674,67 @@ public sealed class StackingService
         // Expand the pool gradually from the lowest game count.
         // The scoring function handles the full 8-priority hierarchy:
         // P1: GamesPlayed (1000 per game) - DOMINANT
-        // P2: Category match (500 per wrong status)
+        // P2: Same-status match (500 per wrong status)
         // P3-P8: Standing, Win Rate, Partner/Opponent rotation, Waiting, FIFO
         var gameCounts = sorted.Select(p => p.GamesPlayed).Distinct().OrderBy(g => g).ToList();
 
+        // Try to find a same-status match first, expanding by game count
         foreach (var threshold in gameCounts)
         {
             var thresholdPool = sorted.Where(p => p.GamesPlayed <= threshold).ToList();
             if (thresholdPool.Count < needed)
                 continue;
 
-            var selected = PickBestCombination(thresholdPool, needed, category);
-            if (selected != null && selected.Count == needed)
-                return selected;
+            // Try to find a same-status match within this threshold pool
+            var sameStatus = TryFindSameStatusMatch(thresholdPool, needed);
+            if (sameStatus != null && sameStatus.Count == needed)
+                return sameStatus;
         }
 
-        // Last resort: pick the lowest-game players overall
-        return PickBestCombination(sorted, needed, category);
+        // If no same-status match found at any threshold, fall back to the
+        // fairest combination from the full eligible pool.
+        // This preserves game-count fairness even when status pools are unbalanced.
+        return PickBestCombination(sorted, needed);
+    }
+
+    /// <summary>
+    /// Try to find a same-status (WIN/WIN or LOSS/LOSS) group from the candidates.
+    /// Prefers the status pool that can form a valid match with the fairest game counts.
+    /// </summary>
+    private List<Player>? TryFindSameStatusMatch(List<Player> candidates, int count)
+    {
+        var winCandidates = candidates.Where(p => p.Status == PlayerStatus.Win).ToList();
+        var lossCandidates = candidates.Where(p => p.Status == PlayerStatus.Loss).ToList();
+
+        // Determine which pool can form a valid match
+        var winCanForm = winCandidates.Count >= count;
+        var lossCanForm = lossCandidates.Count >= count;
+
+        if (!winCanForm && !lossCanForm)
+            return null;
+
+        // If only one pool can form a match, use it
+        if (winCanForm && !lossCanForm)
+            return count == 2 ? PickBestSingles(winCandidates) : PickBestDoubles(winCandidates);
+
+        if (lossCanForm && !winCanForm)
+            return count == 2 ? PickBestSingles(lossCandidates) : PickBestDoubles(lossCandidates);
+
+        // Both pools can form a match - choose the one with the fairest game counts
+        // (lower total games played = higher priority for game-count fairness)
+        var winTotalGames = winCandidates.OrderBy(p => p.GamesPlayed).Take(count).Sum(p => p.GamesPlayed);
+        var lossTotalGames = lossCandidates.OrderBy(p => p.GamesPlayed).Take(count).Sum(p => p.GamesPlayed);
+
+        if (winTotalGames <= lossTotalGames)
+            return count == 2 ? PickBestSingles(winCandidates) : PickBestDoubles(winCandidates);
+
+        return count == 2 ? PickBestSingles(lossCandidates) : PickBestDoubles(lossCandidates);
     }
 
     /// <summary>
     /// Pick the best combination of players based on the 8-priority hierarchy.
     /// </summary>
-    private List<Player>? PickBestCombination(List<Player> candidates, int count, MatchCategory category)
+    private List<Player>? PickBestCombination(List<Player> candidates, int count)
     {
         if (candidates.Count < count)
             return null;
@@ -720,59 +750,19 @@ public sealed class StackingService
             pool = candidates;
 
         // Use the scoring function which implements the full 8-priority hierarchy.
-        // The scoring function naturally prefers same-category players (P2) via the
+        // The scoring function naturally prefers same-status players (P2) via the
         // 500-point penalty, but GamesPlayed (P1, 1000 per game) always dominates.
-        return count == 2 ? PickBestSingles(pool, category) : PickBestDoubles(pool, category);
+        return count == 2 ? PickBestSingles(pool) : PickBestDoubles(pool);
     }
 
-    /// <summary>
-    /// Try to find a same-result (WIN/WIN or LOSS/LOSS) group from the candidates.
-    /// </summary>
-    private List<Player>? TryFindSameResultGroup(List<Player> candidates, int count, MatchCategory category)
-    {
-        // Separate by WIN/LOSS status
-        var winCandidates = candidates.Where(p => p.Status == PlayerStatus.Win).ToList();
-        var lossCandidates = candidates.Where(p => p.Status == PlayerStatus.Loss).ToList();
-
-        // Try the required category first
-        if (category == MatchCategory.WinWin && winCandidates.Count >= count)
-        {
-            var selected = count == 2 ? PickBestSingles(winCandidates, category) : PickBestDoubles(winCandidates, category);
-            if (selected != null && selected.Count == count)
-                return selected;
-        }
-        else if (category == MatchCategory.LossLoss && lossCandidates.Count >= count)
-        {
-            var selected = count == 2 ? PickBestSingles(lossCandidates, category) : PickBestDoubles(lossCandidates, category);
-            if (selected != null && selected.Count == count)
-                return selected;
-        }
-
-        // Try the other category as fallback
-        if (category == MatchCategory.WinWin && lossCandidates.Count >= count)
-        {
-            var selected = count == 2 ? PickBestSingles(lossCandidates, category) : PickBestDoubles(lossCandidates, category);
-            if (selected != null && selected.Count == count)
-                return selected;
-        }
-        else if (category == MatchCategory.LossLoss && winCandidates.Count >= count)
-        {
-            var selected = count == 2 ? PickBestSingles(winCandidates, category) : PickBestDoubles(winCandidates, category);
-            if (selected != null && selected.Count == count)
-                return selected;
-        }
-
-        return null;
-    }
-
-    private List<Player> PickBestSingles(List<Player> candidates, MatchCategory category)
+    private List<Player> PickBestSingles(List<Player> candidates)
     {
         List<Player>? best = null;
         var bestScore = double.MaxValue;
 
         foreach (var combo in Combinations(candidates, 2))
         {
-            var score = ScoreSingles(combo, category);
+            var score = ScoreSingles(combo);
             if (score < bestScore)
             {
                 bestScore = score;
@@ -783,7 +773,7 @@ public sealed class StackingService
         return best ?? candidates.Take(2).ToList();
     }
 
-    private List<Player> PickBestDoubles(List<Player> candidates, MatchCategory category)
+    private List<Player> PickBestDoubles(List<Player> candidates)
     {
         List<Player>? best = null;
         var bestScore = double.MaxValue;
@@ -800,7 +790,7 @@ public sealed class StackingService
 
             foreach (var split in splits)
             {
-                var score = ScoreDoubles(split[0], split[1], category);
+                var score = ScoreDoubles(split[0], split[1]);
                 if (score < bestScore)
                 {
                     bestScore = score;
@@ -840,7 +830,7 @@ public sealed class StackingService
 
         foreach (var split in splits)
         {
-            var score = ScoreDoubles(split[0], split[1], session.NextMatchCategory);
+            var score = ScoreDoubles(split[0], split[1]);
             if (score < bestScore)
             {
                 bestScore = score;
@@ -851,7 +841,7 @@ public sealed class StackingService
         return best ?? (new List<Player> { a, b }, new List<Player> { c, d });
     }
 
-    private double ScoreSingles(IReadOnlyList<Player> combo, MatchCategory category)
+    private double ScoreSingles(IReadOnlyList<Player> combo)
     {
         var score = 0.0;
         var a = combo[0];
@@ -860,11 +850,8 @@ public sealed class StackingService
         // P1: GamesPlayed fairness (DOMINANT - 1000 per game difference)
         score += (a.GamesPlayed + b.GamesPlayed) * 1000;
 
-        // P2: Category match (WIN/WIN or LOSS/LOSS)
-        var requiredStatus = category == MatchCategory.WinWin ? PlayerStatus.Win : PlayerStatus.Loss;
-        if (a.Status != requiredStatus)
-            score += 500;
-        if (b.Status != requiredStatus)
+        // P2: Same-status match (WIN/WIN or LOSS/LOSS)
+        if (a.Status != b.Status)
             score += 500;
 
         // P3: Similar standing (smaller difference is better)
@@ -892,7 +879,7 @@ public sealed class StackingService
         return score;
     }
 
-    private double ScoreDoubles(IReadOnlyList<Player> teamA, IReadOnlyList<Player> teamB, MatchCategory category)
+    private double ScoreDoubles(IReadOnlyList<Player> teamA, IReadOnlyList<Player> teamB)
     {
         var score = 0.0;
         var all = teamA.Concat(teamB).ToList();
@@ -900,13 +887,10 @@ public sealed class StackingService
         // P1: GamesPlayed dominance (DOMINANT - 1000 per game)
         score += all.Sum(p => p.GamesPlayed) * 1000;
 
-        // P2: Correct category (WIN/WIN or LOSS/LOSS)
-        var requiredStatus = category == MatchCategory.WinWin ? PlayerStatus.Win : PlayerStatus.Loss;
-        foreach (var p in all)
-        {
-            if (p.Status != requiredStatus)
-                score += 500;
-        }
+        // P2: Same-status match (all players should have the same WIN/LOSS status)
+        var statuses = all.Select(p => p.Status).Distinct().ToList();
+        if (statuses.Count > 1)
+            score += 500 * statuses.Count;
 
         // P3: Similar standing (smaller spread is better)
         var wins = all.Select(p => p.Wins).ToList();
@@ -970,13 +954,6 @@ public sealed class StackingService
 
         foreach (var p in teamA.Concat(teamB))
             p.Status = PlayerStatus.Playing;
-    }
-
-    private void ToggleNextMatchCategory()
-    {
-        session.NextMatchCategory = session.NextMatchCategory == MatchCategory.WinWin
-            ? MatchCategory.LossLoss
-            : MatchCategory.WinWin;
     }
 
     /// <summary>

@@ -33,12 +33,13 @@ var tests = new List<(string Name, Func<Task> Run)>
     ("Scenario 27: Summary - awards", Scenario27),
     ("Scenario 28: Summary - ties and deterministic ordering", Scenario28),
     ("Scenario 29: First round uses FIFO only", Scenario29),
-    ("Scenario 30: Court availability alternation - WIN/WIN then LOSS/LOSS", Scenario30),
+    ("Scenario 30: Dynamic same-status matching - no artificial alternation", Scenario30),
     ("Scenario 31: Court number does NOT determine match type", Scenario31),
     ("Scenario 32: Fairness simulation - 16 players / 4 courts / 20 rounds", Scenario32),
     ("Scenario 33: GamesPlayed fairness is highest priority", Scenario33),
     ("Scenario 34: Dynamic court availability - first available gets next match", Scenario34),
-    ("Scenario 35: Insufficient players fallback - no crash", Scenario35)
+    ("Scenario 35: Insufficient players fallback - no crash", Scenario35),
+    ("Scenario 36: Fairness simulation - 16 players / 4 courts / 50 rounds", Scenario36)
 };
 
 var passed = 0;
@@ -1023,7 +1024,7 @@ static async Task Scenario29()
 }
 
 // ---------------------------------------------------------------------
-// Scenario 30: Court availability alternation - WIN/WIN then LOSS/LOSS
+// Scenario 30: Dynamic same-status matching - no artificial alternation
 // ---------------------------------------------------------------------
 
 static async Task Scenario30()
@@ -1040,19 +1041,29 @@ static async Task Scenario30()
     svc.RecordResult(2, true); // P5,P6 win, P7,P8 lose
 
     // Capture result groups BEFORE resume
-    var winners = svc.Players.Where(p => p.Status == PlayerStatus.Win).Select(p => p.Name).OrderBy(n => n).ToArray();
-    var losers = svc.Players.Where(p => p.Status == PlayerStatus.Loss).Select(p => p.Name).OrderBy(n => n).ToArray();
+    var winners = svc.Players.Where(p => p.Status == PlayerStatus.Win).Select(p => p.Name).ToHashSet();
+    var losers = svc.Players.Where(p => p.Status == PlayerStatus.Loss).Select(p => p.Name).ToHashSet();
 
-    // Resume → assigns courts. Court 1 should get WIN/WIN, Court 2 should get LOSS/LOSS
+    // Resume → assigns courts dynamically based on fairest same-status match
     svc.PauseSession();
 
-    var court1Players = CourtPlayerNames(svc, 1);
-    var court2Players = CourtPlayerNames(svc, 2);
+    // Both courts must be filled with same-status groups (all WIN or all LOSS)
+    foreach (var court in svc.Courts.Where(c => c.IsActive))
+    {
+        var courtPlayers = court.TeamA!.Players.Concat(court.TeamB!.Players).Select(p => p.Name).ToArray();
+        var allWin = courtPlayers.All(n => winners.Contains(n));
+        var allLoss = courtPlayers.All(n => losers.Contains(n));
+        Assert(allWin || allLoss,
+            $"Court {court.Number} should be all WIN or all LOSS, got [{string.Join(",", courtPlayers)}]");
+    }
 
-    // Court 1 (first available) should be WIN/WIN
-    Assert(court1Players.All(n => winners.Contains(n)), "Court 1 should be WIN/WIN (first available)");
-    // Court 2 (second available) should be LOSS/LOSS
-    Assert(court2Players.All(n => losers.Contains(n)), "Court 2 should be LOSS/LOSS (second available)");
+    // No player duplicated across courts
+    var allPlaying = svc.Courts
+        .Where(c => c.IsActive)
+        .SelectMany(c => c.TeamA!.Players.Concat(c.TeamB!.Players))
+        .Select(p => p.Id)
+        .ToList();
+    Assert(allPlaying.Distinct().Count() == allPlaying.Count, "No player should be duplicated across courts");
     await Task.CompletedTask;
 }
 
@@ -1080,16 +1091,28 @@ static async Task Scenario31()
     // Resume → assigns courts in availability order (court 1, 2, 3, 4 since they finished in order)
     svc.PauseSession();
 
-    // Court 1 = WIN/WIN, Court 2 = LOSS/LOSS, Court 3 = WIN/WIN, Court 4 = LOSS/LOSS
-    var c1 = CourtPlayerNames(svc, 1);
-    var c2 = CourtPlayerNames(svc, 2);
-    var c3 = CourtPlayerNames(svc, 3);
-    var c4 = CourtPlayerNames(svc, 4);
+    // The algorithm dynamically determines the fairest same-status match.
+    // Court number must NOT determine match type.
+    // Each court must be all-WIN or all-LOSS (never mixed).
+    var allCourts = new[] { 1, 2, 3, 4 };
+    foreach (var courtNum in allCourts)
+    {
+        var players = CourtPlayerNames(svc, courtNum);
+        Assert(players.Length == 4, $"Court {courtNum} should have 4 players");
+        var allWin = players.All(n => winners.Contains(n));
+        var allLoss = players.All(n => losers.Contains(n));
+        Assert(allWin || allLoss,
+            $"Court {courtNum} should be all WIN or all LOSS, got [{string.Join(",", players)}]");
+    }
 
-    Assert(c1.All(n => winners.Contains(n)), "Court 1 should be WIN/WIN");
-    Assert(c2.All(n => losers.Contains(n)), "Court 2 should be LOSS/LOSS");
-    Assert(c3.All(n => winners.Contains(n)), "Court 3 should be WIN/WIN");
-    Assert(c4.All(n => losers.Contains(n)), "Court 4 should be LOSS/LOSS");
+    // Verify no player is duplicated across courts
+    var allPlaying = allCourts
+        .SelectMany(c => CourtPlayerNames(svc, c))
+        .ToList();
+    Assert(allPlaying.Distinct().Count() == allPlaying.Count, "No player should be duplicated across courts");
+
+    // Verify all 16 players are accounted for
+    Assert(allPlaying.Count == 16, "All 16 players should be playing");
     await Task.CompletedTask;
 }
 
@@ -1213,6 +1236,72 @@ static async Task Scenario35()
     var court1 = svc.Courts.First(c => c.Number == 1);
     var players = court1.TeamA!.Players.Concat(court1.TeamB!.Players).Select(p => p.Id).ToList();
     Assert(players.Distinct().Count() == 4, "All 4 players should be unique");
+    await Task.CompletedTask;
+}
+
+// ---------------------------------------------------------------------
+// Scenario 36: Fairness simulation - 16 players / 4 courts / 50 rounds
+// ---------------------------------------------------------------------
+
+static async Task Scenario36()
+{
+    var svc = NewService();
+    svc.ChangeCourts(4);
+    svc.ChangeMode(GameMode.Doubles);
+    AddPlayers(svc, 16);
+
+    svc.StartSession();
+
+    // Track game-count difference across all rounds to verify the algorithm
+    // actively corrects imbalance over time.
+    var maxDiff = 0;
+    var maxDiffRound = 0;
+
+    // Simulate 50 rounds of games
+    for (var round = 0; round < 50; round++)
+    {
+        // Finish all active courts
+        var activeCourts = svc.Courts.Where(c => c.IsActive).Select(c => c.Number).ToList();
+        foreach (var courtNum in activeCourts)
+        {
+            svc.RecordResult(courtNum, courtNum % 2 == 0);
+        }
+
+        // Track the game-count spread after each round
+        var games = svc.Players.Select(p => p.GamesPlayed).ToArray();
+        var diff = games.Max() - games.Min();
+        if (diff > maxDiff)
+        {
+            maxDiff = diff;
+            maxDiffRound = round;
+        }
+    }
+
+    // Final game count fairness check
+    var finalGames = svc.Players.Select(p => p.GamesPlayed).ToArray();
+    var finalMax = finalGames.Max();
+    var finalMin = finalGames.Min();
+    var finalDiff = finalMax - finalMin;
+
+    // The difference should remain small (practically as small as possible)
+    Assert(finalDiff <= 2, $"Final game count difference should be <= 2, got max={finalMax}, min={finalMin}, diff={finalDiff}, values=[{string.Join(",", finalGames)}]");
+
+    // The maximum difference across all rounds should also be small
+    Assert(maxDiff <= 2, $"Max game count difference across rounds should be <= 2, got {maxDiff} at round {maxDiffRound}");
+
+    // No player should have 0 games
+    Assert(svc.Players.All(p => p.GamesPlayed > 0), "All players should have played at least once");
+
+    // No duplicate players across courts
+    var allPlaying = svc.Courts
+        .Where(c => c.IsActive)
+        .SelectMany(c => c.TeamA!.Players.Concat(c.TeamB!.Players))
+        .Select(p => p.Id)
+        .ToList();
+    Assert(allPlaying.Distinct().Count() == allPlaying.Count, "No duplicate players across courts");
+
+    // Verify all players have played a reasonable number of games (50 rounds x 4 courts x 4 players / 16 players = 50 games each)
+    Assert(finalGames.All(g => g >= 45), $"All players should have played at least 45 games, got [{string.Join(",", finalGames)}]");
     await Task.CompletedTask;
 }
 
